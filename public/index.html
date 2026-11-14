@@ -1,104 +1,154 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Togetherly — Watch together, anywhere</title><meta name="referrer" content="strict-origin-when-cross-origin"><meta name="description" content="Watch YouTube together with people anywhere. Private rooms, synchronized playback and video calls."><style>
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;color:#f4f5f8;background:#0b0d12;font-synthesis:none}*{box-sizing:border-box}body{margin:0}button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;cursor:not-allowed}a{color:#bbaafa}header{height:72px;border-bottom:1px solid #242633;display:flex;align-items:center;justify-content:space-between;padding:0 max(20px,calc((100vw - 1280px)/2))}.logo{font-size:22px;letter-spacing:-1px;font-weight:800}.logo i{font-style:normal;color:#be9dff}.sub{color:#9899aa;font-size:13px}.pill{font-size:12px;border:1px solid #343647;border-radius:40px;padding:7px 10px;color:#b5b5c5}.online{color:#8ae5ae}main{max-width:1280px;margin:auto;padding:28px 20px}#landing{max-width:550px;margin:9vh auto;text-align:center}.eyebrow{color:#c8a7ff;text-transform:uppercase;font-size:12px;letter-spacing:3px;font-weight:700}h1{font-size:clamp(42px,6vw,72px);letter-spacing:-3px;line-height:1.03;margin:20px 0}h1 span{color:#c6a8ff}p{line-height:1.65;color:#aaa9ba}.panel{background:#161923;border:1px solid #2b2d3b;border-radius:18px;padding:20px}.landingform{margin-top:32px;display:grid;gap:12px;text-align:left}label{font-size:12px;font-weight:650;color:#b6b7c5}input{background:#0f121a;color:#fff;border:1px solid #333649;border-radius:11px;padding:13px;width:100%;outline:none}input:focus{border-color:#bb9df5}.btn{border:0;border-radius:11px;background:#bfa7ff;color:#161021;padding:12px 16px;font-weight:700}.btn:hover{filter:brightness(1.08)}.secondary{background:#292b39;color:#f6f5fa}.outline{background:transparent;color:#c7c5d2;border:1px solid #3b3e4c}.danger{background:#b84762;color:#fff}.small{padding:9px 12px;font-size:13px}.row{display:flex;align-items:center;gap:10px}.grow{flex:1}.between{justify-content:space-between}.muted{color:#a2a4b4}.hidden{display:none!important}#watch{display:none}.layout{display:grid;grid-template-columns:minmax(0,1fr)330px;gap:20px}.stack{display:grid;gap:18px}.video-shell{background:#06070a;aspect-ratio:16/9;border-radius:14px;overflow:hidden;position:relative}#player{width:100%;height:100%}.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.bar input{flex:1;min-width:180px}.sidebar{display:flex;flex-direction:column;gap:16px}.callcams{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cam{background:#08090e;aspect-ratio:4/3;border-radius:12px;overflow:hidden;position:relative}.cam video{width:100%;height:100%;object-fit:cover}.cam video#local{transform:scaleX(-1)}.cam span{position:absolute;bottom:7px;left:8px;font-size:11px;background:#0009;border-radius:5px;padding:3px 6px}.callcontrols{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.members{display:grid;gap:9px}.member{display:flex;align-items:center;justify-content:space-between;font-size:13px}.avatar{display:inline-grid;place-items:center;width:28px;height:28px;background:#38334c;border-radius:50%;margin-right:8px;color:#e4d7ff}.chat{height:220px;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:4px 0 10px}.msg{font-size:13px;overflow-wrap:anywhere}.msg b{color:#cab4fb}.chat-input{display:flex;gap:7px}.chat-input input{min-width:0}.topline{margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.notice{color:#e6c68f;font-size:12px;min-height:18px;margin-top:8px}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#31263f;padding:12px 18px;border-radius:12px;box-shadow:0 8px 30px #0009;z-index:10}.dialog{position:fixed;inset:0;background:#000b;display:grid;place-items:center;padding:20px;z-index:20}.dialog .panel{width:min(100%,390px)}@media(max-width:850px){.layout{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:1fr 1fr}.sidebar .chatbox{grid-column:1/-1}header{padding:0 20px}}@media(max-width:560px){.sidebar{display:flex}main{padding:18px 12px}.panel{padding:14px}header{height:64px}h1{letter-spacing:-2px}.callcams{grid-template-columns:1fr 1fr}}
-
-.call-overlay{position:absolute;right:8px;top:8px;z-index:5;width:min(43%,270px);pointer-events:none}
-.call-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;max-height:calc(100% - 28px);overflow:auto}
-.call-tile{pointer-events:auto;position:relative;border:1px solid #696279;background:#161923;aspect-ratio:4/3;border-radius:10px;overflow:hidden;box-shadow:0 3px 14px #0008}
-.call-tile video{height:100%;width:100%;object-fit:cover;background:#191821}
-.call-tile.local video{transform:scaleX(-1)}
-.call-tile .tile-label{position:absolute;bottom:4px;left:5px;max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;background:#000a;color:white;padding:3px 5px;border-radius:4px}
-.call-tile .tile-status{position:absolute;left:6px;top:6px;font-size:10px;background:#000a;padding:3px 6px;border-radius:5px}
-.overlay-expand{pointer-events:auto;background:#171520d9;color:white;border:1px solid #aaa6;border-radius:7px;padding:3px 8px;float:right;margin-top:4px}
-.call-overlay.expanded{width:min(65%,350px)}.call-overlay.expanded .call-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.chat-bubble{display:none;position:absolute;bottom:10px;right:10px;z-index:7;border:1px solid #ffffff33;background:#27213dcf;color:#fff;border-radius:24px;padding:10px 13px;box-shadow:0 3px 18px #0008;backdrop-filter:blur(8px)}
-.chat-bubble:focus-visible,.overlay-expand:focus-visible{outline:3px solid #c9b7ff}
-.unread{display:inline-grid;place-items:center;background:#e96792;border-radius:20px;font-size:11px;min-width:17px;height:17px;margin-left:3px}
-#closeChat{display:none}
-.chatbox.chat-open{display:flex}
-@media(max-width:850px){
-.chat-bubble{display:block}#chatPanel{display:none;position:fixed;z-index:30;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom));max-height:min(66vh,460px);box-shadow:0 0 0 200vmax #0007,0 20px 60px #000b;border:1px solid #7e6d9e;flex-direction:column}
-#chatPanel.chat-open{display:flex}#chatPanel .chat{min-height:140px;height:min(42vh,280px)}
-#closeChat{display:inline-flex}
-.call-overlay{width:min(44%,190px);top:6px;right:6px}
-.call-overlay.expanded{width:min(66%,280px)}
-.call-grid{gap:3px}.call-tile{border-radius:7px}.call-tile .tile-label{font-size:9px}
-}
-@media(max-width:430px){.call-overlay{width:44%}.chat-bubble{bottom:6px;right:6px;padding:8px 10px}.call-grid{max-height:185px}}
-
-.player-fallback{position:absolute;z-index:3;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:14px;text-align:center;padding:25px;background:#0b0d12;color:#ddd;pointer-events:auto}
-.player-fallback.hidden{display:none}
-.loading-dot{width:48px;height:48px;display:grid;place-items:center;border-radius:50%;border:1px solid #6b547e;background:#262132;font-size:18px;color:#cab4ff}
-.player-fallback a{font-size:12px;color:#ccb6ff}
-#rename{padding:3px 8px;font-size:11px}
-@media(max-width:560px){.player-fallback{gap:8px;font-size:12px}.loading-dot{height:30px;width:30px;font-size:12px}}
-
-/* Togetherly immersive theater: fullscreen the container, never the YouTube iframe. */
-.theater-toggle{
- position:absolute;left:10px;top:10px;z-index:12;display:inline-flex;align-items:center;gap:5px;
- color:white;background:rgba(19,18,27,.80);border:1px solid #ffffff66;border-radius:9px;
- padding:8px 11px;font-size:12px;font-weight:700;backdrop-filter:blur(8px);
-}
-.theater-toggle:focus-visible,.chat-bubble:focus-visible,.overlay-expand:focus-visible{outline:3px solid #d4b7ff;outline-offset:2px}
-.video-shell.theater-mode{background:#000}
-.video-shell:fullscreen,.video-shell.pseudo-fullscreen{
- position:fixed!important;inset:0!important;top:0!important;left:0!important;
- width:100vw!important;height:100vh!important;height:100dvh!important;
- max-height:none!important;max-width:none!important;aspect-ratio:auto!important;
- z-index:1000!important;border-radius:0!important;margin:0!important;overflow:hidden!important;
- background:#000!important;
-}
-.video-shell:fullscreen #player,.video-shell.pseudo-fullscreen #player,
-.video-shell:fullscreen iframe,.video-shell.pseudo-fullscreen iframe{
- width:100%!important;height:100%!important;
-}
-body.theater-lock{overflow:hidden!important;overscroll-behavior:none}
-.video-shell.theater-mode .chat-bubble{display:block!important;right:max(12px,env(safe-area-inset-right));bottom:max(14px,env(safe-area-inset-bottom))}
-.video-shell.theater-mode .call-overlay{top:max(52px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));width:min(30vw,300px);max-height:calc(100% - 104px)}
-.video-shell.theater-mode .call-grid{max-height:min(58vh,500px)}
-.video-shell.theater-mode .call-overlay.expanded{width:min(55vw,490px)}
-.video-shell.theater-mode #chatPanel{
- display:none;position:absolute!important;z-index:35!important;right:max(12px,env(safe-area-inset-right))!important;
- left:auto!important;bottom:max(68px,calc(env(safe-area-inset-bottom) + 64px))!important;
- width:min(390px,calc(100% - 24px))!important;max-height:min(70vh,490px)!important;
- padding:16px;box-shadow:0 8px 50px #000b;border:1px solid #86729d;
- flex-direction:column;background:#171924;
-}
-.video-shell.theater-mode #chatPanel.chat-open{display:flex!important}
-.video-shell.theater-mode #chatPanel .chat{height:min(41vh,330px);min-height:110px;overflow:auto}
-.video-shell.theater-mode #closeChat{display:inline-flex}
-@media(max-width:600px){
- .theater-toggle{padding:7px 9px;top:7px;left:7px;font-size:11px}
- .video-shell.theater-mode .call-overlay{top:max(46px,env(safe-area-inset-top));right:8px;width:min(40vw,190px)}
- .video-shell.theater-mode .call-overlay.expanded{width:min(65vw,280px)}
- .video-shell.theater-mode .call-grid{max-height:42vh}
- .video-shell.theater-mode #chatPanel{max-height:60vh!important}
-}
-</style><link rel="stylesheet" href="/cinema.css?v=1"></head><body><header><div class="logo">togetherly<i>.</i></div><div class="pill"><span class="online">●</span> YOUR PRIVATE SCREENING ROOM</div></header><main><section id="landing"><div class="eyebrow">Better together</div><h1>Distance shouldn't <span>pause</span> movie night.</h1><p>Watch the same YouTube video, talk face-to-face and share the moment. A private space for you and your favorite people.</p><div class="panel landingform"><label for="name">WHAT SHOULD WE CALL YOU?</label><input id="name" maxlength="25" placeholder="Your first name" autocomplete="nickname"><button class="btn" id="create">Create a watch room →</button><div id="joinbox" class="hidden"><label>INVITATION</label><p class="sub">You've been invited to a private watch room.</p><button class="btn secondary" id="join">Join watch room →</button></div><div class="sub" style="text-align:center">Free • No sign-up • Works on mobile</div></div></section>
-<section id="watch"><div class="topline"><div><div class="room-title-wrap"><span class="eyebrow">THE SCREENING ROOM</span><div class="room-title">Watch together<span class="title-period">.</span></div></div><div class="row"><div class="sub" id="count">Just you for now</div><button class="btn outline small" id="rename">Edit name</button></div></div><div class="row"><button class="btn secondary small" id="copy">Copy invite link</button><button class="btn outline small" id="leave">Leave room</button></div></div><div class="layout"><div class="stack"><div class="panel"><div class="video-shell" id="videoShell">
-<div id="player"></div>
-<div class="player-fallback" id="playerFallback" role="status" aria-live="polite">
-  <span class="loading-dot">▶</span>
-  <div id="playerMessage">Loading YouTube player…</div>
-  <div class="row" style="justify-content:center;flex-wrap:wrap">
-    <button class="btn secondary small" id="retryPlayer">Retry player</button>
-    <a id="youtubeLink" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer">Open on YouTube</a>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0B1420">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="description" content="Your little cinema, anywhere. Watch YouTube with people you love, share a private call and chat in sync.">
+<title>Togetherly — Your little cinema, anywhere</title>
+<link rel="stylesheet" href="/bluehour.css?v=1">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Togetherly home">togetherly<span>.</span></a>
+  <div class="brand-tagline">YOUR LITTLE CINEMA, ANYWHERE</div>
+  <div class="header-presence"><span class="presence-light"></span> A little closer, anywhere</div>
+</header>
+<main>
+<section id="landing" class="landing">
+  <div class="landing-copy">
+    <span class="eyebrow">A PRIVATE SCREENING ROOM</span>
+    <h1>Same movie.<br><em>Same moment.</em></h1>
+    <p>For the people who are far away but never really apart. Press play together, talk face-to-face, and make a night of it.</p>
+    <div class="landing-extras"><span>◉ Synced playback</span><span>♡ Two camera seats</span><span>◌ Friends welcome</span></div>
+  </div>
+  <div class="landing-entry">
+    <div class="entry-top"><span class="entry-icon">✦</span><span>YOUR INVITATION</span></div>
+    <h2>A movie night is waiting.</h2>
+    <p>Nothing to install. No account to create.</p>
+    <label for="name">YOUR NAME</label>
+    <input id="name" maxlength="25" placeholder="What should we call you?" autocomplete="nickname" required>
+    <button class="primary-button" id="create">Start a movie night <span aria-hidden="true">↗</span></button>
+    <div id="joinbox" class="hidden join-box">
+      <div class="join-divider"><span>YOU'VE BEEN INVITED</span></div>
+      <button class="secondary-button" id="join">Join this room <span aria-hidden="true">→</span></button>
+    </div>
+    <div class="entry-footer"><span>NO SIGN-UP</span><span>PRIVATE LINK</span><span>FREE TO WATCH</span></div>
+  </div>
+</section>
+<section id="watch" class="watch-room">
+  <div class="room-header">
+    <div>
+      <span class="eyebrow">YOUR PRIVATE SCREENING ROOM</span>
+      <h1>Tonight, together<span class="period">.</span></h1>
+      <div class="room-presence"><span id="count">Just you for now</span><span class="presence-divider">•</span><button id="rename" class="text-button">Edit name</button></div>
+    </div>
+    <div class="room-actions">
+      <button id="copy" class="secondary-button small">↗ Invite someone</button>
+      <button id="leave" class="text-button">Leave room</button>
+    </div>
+  </div>
+  <div class="room-grid">
+    <div class="theater-main">
+      <div class="watch-stage">
+        <div class="video-shell" id="videoShell">
+          <div id="player"></div>
+          <div class="player-fallback" id="playerFallback" role="status" aria-live="polite">
+            <span class="player-loading-mark">▶</span>
+            <div id="playerMessage">Getting your screen ready…</div>
+            <div class="fallback-actions">
+              <button class="secondary-button small" id="retryPlayer">Try again</button>
+              <a id="youtubeLink" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer">Open on YouTube</a>
+            </div>
+          </div>
+          <div id="callOverlay" class="call-overlay hidden" aria-label="Live video participants">
+            <div id="callGrid" class="call-grid"></div>
+            <div class="call-tile-actions">
+              <button id="minimizeCall" class="overlay-button" aria-label="Minimize call video">Minimize</button>
+              <button id="expandCall" class="overlay-button" aria-label="Enlarge call video">⤢</button>
+            </div>
+          </div>
+          <button id="callBubble" class="call-bubble hidden" aria-label="Restore call video" title="Restore cameras">◉ <span id="callBubbleCount">0</span> on screen</button>
+          <button id="chatBubble" class="chat-bubble" aria-label="Open chat" title="Show messages">☏ Chat <span id="unread" class="unread hidden">0</span></button>
+          <button id="fullscreenToggle" class="theater-toggle" aria-label="Enter watch fullscreen" aria-pressed="false">⤢ <span id="theaterLabel">Theater mode</span></button>
+        </div>
+        <div class="player-toolbar">
+          <div class="playback-controls">
+            <button id="play" class="icon-control" title="Play video" aria-label="Play">▶</button>
+            <button id="pause" class="icon-control" title="Pause video" aria-label="Pause">Ⅱ</button>
+            <button id="sync" class="icon-control" title="Resync playback" aria-label="Resync">↻</button>
+            <span id="syncLabel" class="sync-status">Ready to watch</span>
+          </div>
+          <button id="openExplore" class="primary-button small">⌕ Find something to watch</button>
+        </div>
+        <div class="paste-row">
+          <label class="paste-label" for="videoURL">HAVE A LINK?</label>
+          <input id="videoURL" placeholder="Paste a YouTube link (optional)">
+          <button id="pasteLink" class="secondary-button small">Paste</button>
+          <button id="load" class="secondary-button small">Play now</button>
+        </div>
+        <div class="notice" id="notice" aria-live="polite"></div>
+      </div>
+      <section class="watch-queue">
+        <div class="section-title-row"><div><span class="eyebrow">KEEP THE NIGHT GOING</span><h2>Up next <span id="queueCount" class="subtle-count">0</span></h2></div><button id="queueExplore" class="text-button">+ Find videos</button></div>
+        <div id="queueList" class="queue-list"><div class="empty-state">Your queue is empty. Find something good to watch next.</div></div>
+      </section>
+    </div>
+    <aside class="room-rail">
+      <section class="rail-section people-section">
+        <div class="section-title-row"><h2>In this room</h2><span id="roomSeats" class="subtle-count">2 camera seats</span></div>
+        <div id="members" class="members"></div>
+        <div id="callStatus" class="call-status">No one on camera yet</div>
+        <div class="callcontrols">
+          <button id="call" class="primary-button small">Join on camera</button>
+          <button id="watchCall" class="secondary-button small">Watch the call</button>
+          <button id="mic" class="secondary-button small" disabled>Mute mic</button>
+          <button id="camera" class="secondary-button small" disabled>Camera off</button>
+          <button id="shareCall" class="secondary-button small hidden" title="Allow spectators to see and hear you">Share my camera with viewers</button>
+          <button id="hangup" class="secondary-button small hidden">Leave call</button>
+        </div>
+        <p id="callNote" class="privacy-note">Only two people can use cameras. Everyone else can watch and chat. Camera guests must opt in before spectators see or hear them.</p>
+      </section>
+      <section class="rail-section conversation-section" id="chatPanel">
+        <div class="section-title-row"><h2>Conversation</h2><button id="closeChat" class="text-button" aria-label="Close chat">Close ✕</button></div>
+        <div class="chat" id="chat" aria-live="polite"></div>
+        <form id="chatForm" class="chat-input">
+          <input id="chatText" maxlength="500" placeholder="Say something lovely…" autocomplete="off" aria-label="Chat message">
+          <button class="send-button" type="submit" aria-label="Send message">↗</button>
+        </form>
+      </section>
+    </aside>
+  </div>
+</section>
+</main>
+<div id="discoverModal" class="discover-modal hidden" role="dialog" aria-modal="true" aria-labelledby="discoverTitle">
+  <div class="discover-scrim" id="discoverScrim"></div>
+  <div class="discover-panel">
+    <div class="discover-top">
+      <div><span class="eyebrow">PICK SOMETHING GOOD</span><h2 id="discoverTitle">The watch shelf<span class="period">.</span></h2></div>
+      <button id="closeExplore" class="icon-control" aria-label="Close video finder">✕</button>
+    </div>
+    <p class="discover-intro">Discover videos without leaving your room. Save one for later or put it on the screen.</p>
+    <form id="discoverForm" class="discover-search">
+      <input id="discoverInput" maxlength="80" placeholder="Search YouTube videos, films, episodes…" aria-label="Search videos">
+      <button type="submit" class="primary-button small">Search</button>
+    </form>
+    <div class="quick-searches">
+      <button type="button" data-query="official short films">Short films</button>
+      <button type="button" data-query="official full movies">Movies</button>
+      <button type="button" data-query="web series episodes official">Web series</button>
+      <button type="button" data-query="stand up comedy">Comedy</button>
+      <button type="button" data-query="travel documentaries">Travel</button>
+    </div>
+    <div id="searchHint" class="search-hint"></div>
+    <div id="recentSection" class="recent-section"><h3>Recently watched on this device</h3><div id="recentList" class="search-results"></div></div>
+    <div id="discoverResults" class="search-results"></div>
+    <div class="discover-footer"><span>Videos must allow YouTube embedding and may vary by country.</span><a id="openYouTubeSearch" target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/">Browse YouTube ↗</a></div>
   </div>
 </div>
-<div id="callOverlay" class="call-overlay hidden" aria-label="Live call video tiles">
- <div id="callGrid" class="call-grid"></div>
- <div class="call-tile-actions">
-  <button id="minimizeCall" type="button" class="overlay-expand" title="Minimize camera tiles" aria-label="Minimize video call">— Minimize</button>
-  <button id="expandCall" type="button" class="overlay-expand" title="Expand or collapse video call" aria-label="Expand video call">⤢</button>
- </div>
-</div>
-<button id="callBubble" type="button" class="call-bubble hidden" title="Show video call" aria-label="Restore video call">◉ <span id="callBubbleCount">0</span> <span class="bubble-label">in call</span></button>
-<button id="chatBubble" class="chat-bubble" title="Open chat" aria-label="Open chat">💬 <span id="unread" class="unread hidden">0</span></button>
-<button id="fullscreenToggle" type="button" class="theater-toggle" title="Fullscreen with chat and video calls" aria-label="Enter watch fullscreen" aria-pressed="false">⛶ <span id="theaterLabel">Fullscreen</span></button>
-</div><div class="bar" style="margin-top:15px"><input id="videoURL" placeholder="Paste a YouTube video URL"><button class="btn small" id="load">Load video</button></div><div class="bar" style="margin-top:12px"><button class="btn secondary small" id="play">▶ Play</button><button class="btn secondary small" id="pause">Ⅱ Pause</button><button class="btn secondary small" id="sync">↻ Resync</button><span class="sub" id="syncLabel">Ready</span></div><div class="notice" id="notice"></div></div><div class="panel"><div class="note-title">A NOTE ON PLAYBACK</div><p class="sub">Everyone streams from YouTube directly. Some videos can't be embedded, and mobile browsers might require you to tap Play. Different ads or regional availability can affect synchronization.</p></div></div>
-<aside class="sidebar"><div class="panel"><div class="row between" style="margin-bottom:12px"><b>THE PEOPLE <span class="sub">/ UP TO FOUR</span></b><span class="sub" id="callStatus">Not in call</span></div>
-<div class="callcontrols">
-<button class="btn small" id="call">Join camera room</button>
-<button class="btn secondary small" id="mic" disabled>Mute mic</button>
-<button class="btn secondary small" id="camera" disabled>Camera off</button>
-<button class="btn danger small hidden" id="hangup">Leave call</button>
-</div><div class="sub" style="margin-top:10px">See one another without leaving the movie. Headphones recommended.</div></div><div class="panel"><b>IN THE ROOM</b><div id="members" class="members" style="margin-top:12px"></div></div><div class="panel chatbox" id="chatPanel"><div class="row between"><b>CONVERSATION</b><button id="closeChat" class="btn outline small" aria-label="Close chat">✕</button></div><div class="chat" id="chat" aria-live="polite" style="margin-top:12px"></div><form class="chat-input" id="chatForm"><input id="chatText" placeholder="Say something..." maxlength="500" aria-label="Message"><button class="btn small" type="submit">Send</button></form></div></aside></div></section></main><div id="toast" class="toast hidden" role="status"></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=5"></script></body></html>
+<div id="toast" class="toast hidden" role="status"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/app.js?v=6"></script>
+</body>
+</html>

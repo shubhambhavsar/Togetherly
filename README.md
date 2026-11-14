@@ -1,38 +1,45 @@
-# Togetherly
+# Togetherly — Blue Hour Cinema
 
-Minimal YouTube-first watch party with shareable rooms, synchronized playback, chat and one-to-one WebRTC video calling.
+A minimal shared YouTube watch room at https://everydaygrove.ca. One invitation link lets friends watch in sync, chat, and — with consent — view two live camera participants.
 
-## Local setup
-Install Node.js 20+, run `npm install` and `npm start`, then open `http://localhost:3000`. For cross-device calls deploy to HTTPS (localhost works locally).
+## Experience
+- Create a room and invite friends (no accounts required).
+- Up to **8 people per room**, with only **2 camera seats**.
+- Other participants can watch the synced YouTube player and chat independently of video-call connectivity.
+- Spectators can opt into receiving the call without granting camera/microphone permissions.
+- Each camera participant must explicitly select **Allow guests to see/hear my camera** before spectators may receive their video/audio. The other camera participant stays private unless they also opt in.
+- Minimize camera tiles to a compact bubble, or keep them on screen in Togetherly theater/fullscreen mode.
+- In-room watch queue, recently watched videos on this device, one-tap clipboard paste, and optional embedded YouTube search.
+- Design palette: Midnight Navy #0B1420, Deep Slate #172433, Misty Blue #A8C7D8, Warm Ivory #F4F1EB, Soft Amber #E9BB89.
 
-## Render
-Create a Render Web Service from this repository or use its `render.yaml` Blueprint. Build: `npm install`; Start: `npm start`; health check: `/health`. Free instance may sleep when idle. Rooms and chats are in-memory and disappear on restart; use sticky single-instance deployment until rooms are moved to persistent shared storage.
+## Running locally
+Install Node 20+ then:
+```sh
+npm install
+npm test
+npm start
+```
+Open http://localhost:3000. The app needs an HTTPS URL to access the camera/microphone on remote devices.
 
-## Hostinger DNS
-After Render service is working, add both `everydaygrove.ca` and `www.everydaygrove.ca` under Render custom domains. In Hostinger hPanel DNS zone remove conflicting old Shopify A/AAAA/CNAME website records only, then enter *the exact DNS values displayed by Render* and verify. Preserve MX, SPF, DKIM, and other email records.
+## Production / Render
+Render is set to automatically deploy the `main` branch. A web service runs `npm start`, which first runs `npm test`. No database is required for this MVP; room video choices, queue and messages are held in process memory and reset when the service restarts, although a valid room link can reopen the room.
 
-## Calling
-WebRTC uses a public STUN server by default. For more reliable connections across NATs, configure Render environment variables `TURN_URL`, `TURN_USERNAME`, and `TURN_CREDENTIAL` for your own TURN service. Each user must approve camera/microphone permissions. Calls are not recorded by Togetherly.
+## YouTube discovery (optional)
+To enable in-app searches, create your own Google Cloud API key with the **YouTube Data API v3** enabled and set `YOUTUBE_API_KEY` in the Render service's Environment settings. **Do not place the key in GitHub or browser code.**
 
-## Notes
-Embedded YouTube videos can be region blocked or embedding disabled. Mobile autoplay usually requires a tap. Keep YouTube's native player, attribution, and ads intact. The server does not relay YouTube media. For production, add room expiry, rate limiting, anti-abuse controls, privacy policy, persistent room state, more careful connection handling, and tests on iOS Safari/Android Chrome. Not independently end-to-end tested.
+Searches use the official API with embeddable-video filtering, a per-user limit and a conservative daily request budget. They still consume your Google Cloud API quota (typically 100 units per search); the app does not download, remove ads from, or rebroadcast YouTube streams. Some titles cannot be embedded or are region restricted.
 
-## Call reliability (TURN relay)
-The video grid uses a peer-to-peer WebRTC mesh, currently supporting up to four participants. Direct STUN-only connections **do not work on every network**. If a tile says "TURN relay needed", create credentials with a TURN provider. Using more video peers increases bandwidth and CPU use.
+Without the key, users can browse their recently watched videos, play the shared queue, open YouTube to discover something, copy its link and use **Paste** on Togetherly. Full search is **not available** until an API key is configured.
 
-**Metered Open Relay quick setup:**
-1. Open https://www.metered.ca/tools/openrelay/ and create an account. Their published free quota is currently 20 GB/month; review latest terms and limits.
-2. In Metered's dashboard, create a TURN credential. Under the credential, select **Get credential → Show API Key**. This is the *credential-scoped* API key, not the account-wide secret.
-3. Find your Metered domain in the Developers area, e.g. `your-subdomain.metered.live`.
-4. In Render → Togetherly → Environment, add:
-   - `METERED_TURN_DOMAIN` = `your-subdomain.metered.live`
-   - `METERED_TURN_API_KEY` = the credential-scoped key
-5. Save the environment variables and let Render redeploy. Close and reopen all watch room tabs and rejoin the call.
-6. Use Metered's TURN testing page to verify that you can obtain a relay candidate. A TURN provider is an external service and needs an account plus credentials; adding this integration alone doesn't create a working relay.
+## Calls without TURN
+Two-person calls already work on the tested networks; the app remains peer-to-peer (STUN) and does **not** require TURN credentials. Watching someone else's video call is still a real WebRTC connection; spectators on certain mobile networks may not be able to receive the camera feeds. If that happens, they can continue the shared movie and chat. For reliable spectator media and larger groups, a managed SFU (e.g. LiveKit) would be a future integration.
 
-The server fetches ICE servers from Metered and gives that connection configuration only to clients who have joined a watch room. It never exposes the account-wide Metered secret. The server also accepts direct/static TURN settings `TURN_URL`, `TURN_USERNAME` and `TURN_CREDENTIAL`. The static configuration takes priority.
+A camera's consent to spectators is **off by default**. A public invitation link only grants entry to that room. It does not enable camera feeds or recording. The app currently has no call recording feature.
 
-**For larger public use:** use short-lived TURN credentials, tighter relay quota limits and an SFU rather than a four-way mesh.
+## Limitations / next steps
+- Fullscreen uses Togetherly theater mode, not YouTube's native fullscreen, to preserve overlays. Safari may use a screen-filling fallback.
+- In-memory rooms and chat are not persistent. Free Render services may sleep/restart.
+- Improve cross-device call testing, video-sync accuracy, reconnection resilience, room abuse protection, playback error feedback and mobile browser compatibility before relying on this commercially.
+- Licensed movies, Vimeo, and protected services (Netflix, Prime, Disney+) aren't embedded in this release; research those separately with permissions and regional rights.
 
-## Cinema mode and call dock
-Use **Fullscreen** on the Togetherly video player instead of the YouTube native fullscreen button. This keeps all camera tiles and the chat bubble in the same fullscreen element, with a theater-mode fallback on some phones. Select **Minimize** next to the floating call tiles to hide the videos without ending the call; use the camera bubble to restore them. Minimize does not disable your camera or mic — use the explicit camera/mic controls for that.
+Source: https://github.com/shubhambhavsar/Togetherly

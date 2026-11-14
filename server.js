@@ -2,7 +2,8 @@
 const express=require('express'),http=require('http'),{Server}=require('socket.io'),{randomBytes}=require('crypto'),path=require('path');
 const app=express(),server=http.createServer(app),io=new Server(server,{maxHttpBufferSize:16000});
 const rooms=new Map();
-const MAX_CALL_PARTICIPANTS=4;
+const MAX_CAMERA_PARTICIPANTS=2;
+const MAX_ROOM_PARTICIPANTS=8;
 app.disable('x-powered-by');
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self)');next()});
 app.use(express.static(path.join(__dirname,'public')));
@@ -59,6 +60,32 @@ app.get('/api/rtc',async(req,res)=>{
   relayAvailable:iceServers.some(entry=>[].concat(entry.urls).some(u=>u.startsWith('turn:')||u.startsWith('turns:'))),
   relayError});
 });
+
+// YouTube Data API searches are optional, quota-limited, and never expose the API key.
+const searchCache=new Map(),searchRates=new Map();
+const searchBudget={day:'',uses:0};
+async function searchYouTube(q){
+ const now=Date.now(),cacheKey=q.toLowerCase(),saved=searchCache.get(cacheKey);
+ if(saved&&saved.until>now)return saved.items;
+ const day=new Date().toISOString().slice(0,10);
+ if(searchBudget.day!==day){searchBudget.day=day;searchBudget.uses=0}
+ if(searchBudget.uses>=70)throw new Error('Daily free search allowance used. Paste a link or try tomorrow.');
+ const url=new URL('https://www.googleapis.com/youtube/v3/search');
+ const opts={part:'snippet',type:'video',videoEmbeddable:'true',maxResults:'10',safeSearch:'moderate',q,key:process.env.YOUTUBE_API_KEY};
+ for(const [k,v] of Object.entries(opts))url.searchParams.set(k,v);
+ searchBudget.uses++;
+ const response=await fetch(url,{signal:AbortSignal.timeout(9000)});
+ if(!response.ok){console.warn('YouTube discovery failed:',response.status);throw new Error('YouTube search is unavailable. Try later or use a link.')}
+ const body=await response.json();
+ const items=(body.items||[]).filter(x=>/^[A-Za-z0-9_-]{11}$/.test(x.id?.videoId||'')).map(x=>({
+  id:x.id.videoId,
+  title:String(x.snippet?.title||'Untitled video').slice(0,150),
+  channel:String(x.snippet?.channelTitle||'').slice(0,80)
+ }));
+ if(searchCache.size>120)searchCache.clear();
+ searchCache.set(cacheKey,{items,until:now+10*60*1000});return items;
+}
+app.get('/api/discovery-status',(req,res)=>res.json({searchReady:!!process.env.YOUTUBE_API_KEY}));
 app.get('/room/:id',(_req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 const safeName=x=>typeof x==='string'?x.replace(/[<>\x00-\x1f]/g,'').trim().slice(0,25):'';
 const validRoom=x=>typeof x==='string'&&/^[a-f0-9]{24}$/.test(x);
@@ -66,7 +93,9 @@ const getVideo=x=>{if(typeof x!=='string'||x.length>500)return null;x=x.trim();i
 const roomOf=s=>{const r=rooms.get(s.data.room);return r?.users.has(s.id)?r:null};
 const state=r=>({video:r.video,playing:r.playing,position:r.position+(r.playing?(Date.now()-r.at)/1000:0),version:r.version});
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
-function newRoom(id){return {id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Set(),emptySince:Date.now()}}
+const callMembers=r=>[...r.callUsers].map(([id,meta])=>({id,role:meta.role,sharing:!!meta.sharing}));
+const publishCall=r=>io.to(r.id).emit('call:members',callMembers(r));
+function newRoom(id){return {id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
 setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
 
 function leaveCall(s) {
@@ -74,14 +103,14 @@ function leaveCall(s) {
  if(!r?.callUsers?.has(s.id))return;
  r.callUsers.delete(s.id);
  s.to(r.id).emit('call:peer-left',{id:s.id});
- io.to(r.id).emit('call:members',[...r.callUsers]);
+ publishCall(r);
 }
 function leave(s){leaveCall(s);const r=roomOf(s);if(!r)return;r.users.delete(s.id);s.leave(r.id);s.data.room=null;io.to(r.id).emit('members',members(r));if(!r.users.size)r.emptySince=Date.now()}
 io.on('connection',s=>{
-s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r=newRoom(id);rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[]})});
+s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r=newRoom(id);rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[],queue:[]})});
 s.on('join',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before joining'});let r=validRoom(d?.id)?rooms.get(d.id):null;
  if(!r&&validRoom(d?.id)){r=newRoom(d.id);rooms.set(d.id,r)}
- if(!r)return ack({error:'Invalid room link'});if(r.users.size>=8)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:[...r.callUsers]});io.to(r.id).emit('members',members(r))});
+ if(!r)return ack({error:'Invalid room link'});if(r.users.size>=MAX_ROOM_PARTICIPANTS)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:callMembers(r),queue:r.queue});io.to(r.id).emit('members',members(r))});
 s.on('room:rename',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Not in a room'});
  const newName=safeName(d?.name);if(!newName)return ack?.({error:'Name is required'});
@@ -89,26 +118,78 @@ s.on('room:rename',(d,ack)=>{
  ack?.({ok:true});
 });
 s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+
+s.on('discover:search',async(d,ack)=>{
+ if(typeof ack!=='function')return;
+ if(!roomOf(s))return ack({error:'Join the watch room before searching'});
+ if(!process.env.YOUTUBE_API_KEY)return ack({error:'In-app search needs a YouTube API key. Use the recent shelf or paste a link for now.'});
+ const q=typeof d?.q==='string'?d.q.trim().slice(0,80):'';
+ if(q.length<2)return ack({error:'Enter at least two characters'});
+ const now=Date.now(),rate=searchRates.get(s.id)||{count:0,until:now+3600000};
+ if(rate.until<now){rate.count=0;rate.until=now+3600000}
+ rate.count++;searchRates.set(s.id,rate);
+ if(rate.count>12)return ack({error:'Search limit reached. Please try later.'});
+ try{ack({items:await searchYouTube(q)})}catch(e){ack({error:e.message})}
+});
+s.on('queue:add',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
+ const id=getVideo(d?.url);if(!id)return ack?.({error:'Enter a valid YouTube video'});
+ if(r.queue.length>=20)return ack?.({error:'The queue is full'});
+ const title=typeof d.title==='string'?d.title.trim().replace(/[<>\\x00-\\x1f]/g,'').slice(0,110):'';
+ const item={id:randomBytes(6).toString('hex'),video:id,title:title||'YouTube video',addedBy:r.users.get(s.id)};
+ r.queue.push(item);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true});
+});
+s.on('queue:play',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
+ const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Video not found in queue'});
+ const item=r.queue.splice(i,1)[0];r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
+});
+s.on('queue:remove',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Not in room'});
+ const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Not in queue'});
+ r.queue.splice(i,1);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
+});
 s.on('playback',d=>{const r=roomOf(s);if(!r||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
 s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
 s.on('message',d=>{const r=roomOf(s);if(!r||typeof d?.text!=='string')return;const text=d.text.trim().slice(0,500);if(!text)return;const m={id:randomBytes(6).toString('hex'),name:r.users.get(s.id),text};r.messages.push(m);if(r.messages.length>40)r.messages.shift();io.to(r.id).emit('message',m)});
-s.on('call:join',(_,ack)=>{
- const r=roomOf(s);
- if(typeof ack!=='function')return;
- if(!r)return ack({error:'Join a room first'});
- if(r.callUsers.has(s.id))return ack({peers:[...r.callUsers].filter(id=>id!==s.id)});
- if(r.callUsers.size>=MAX_CALL_PARTICIPANTS)return ack({error:'Group call is full (maximum 4)'});
- const peers=[...r.callUsers];
- r.callUsers.add(s.id);
- ack({peers});
- io.to(r.id).emit('call:members',[...r.callUsers]);
- s.to(r.id).emit('call:peer-joined',{id:s.id});
+
+s.on('call:join',(data,ack)=>{
+ const r=roomOf(s);if(typeof ack!=='function')return;
+ if(!r)return ack({error:'Join the room first'});
+ if(r.callUsers.has(s.id))return ack({error:'Already in a call'});
+ const role=data?.role==='spectator'?'spectator':'camera';
+ const cameras=[...r.callUsers].filter(([,meta])=>meta.role==='camera');
+ if(role==='camera'&&cameras.length>=MAX_CAMERA_PARTICIPANTS)return ack({error:'Both camera seats are in use. Choose Watch call instead.',code:'CAMERAS_FULL'});
+ const peers=role==='camera'
+ ? cameras.map(([id])=>id)
+ : cameras.filter(([,meta])=>meta.sharing).map(([id])=>id);
+ r.callUsers.set(s.id,{role,sharing:false});
+ ack({role,peers,callMembers:callMembers(r)});
+ publishCall(r);
+ s.to(r.id).emit('call:peer-joined',{id:s.id,role});
+});
+s.on('call:share',(d,ack)=>{
+ const r=roomOf(s),user=r?.callUsers.get(s.id);
+ if(!user||user.role!=='camera')return ack?.({error:'Only camera participants can share their call'});
+ const newValue=d?.enabled===true;
+ if(user.sharing===newValue)return ack?.({ok:true});
+ user.sharing=newValue;
+ for(const [id,peer] of r.callUsers){
+  if(peer.role!=='spectator')continue;
+  io.to(id).emit(newValue?'call:publisher-available':'call:peer-left',{id:s.id});
+  if(!newValue)io.to(s.id).emit('call:peer-left',{id});
+ }
+ publishCall(r);ack?.({ok:true,sharing:user.sharing});
 });
 s.on('call:leave',()=>leaveCall(s));
 s.on('call:signal',d=>{
- const r=roomOf(s);
- if(!r||!r.callUsers.has(s.id)||!r.callUsers.has(d?.to)||d.to===s.id)return;
- if(!d.data||typeof d.data!=='object'||Array.isArray(d.data))return;
+ const r=roomOf(s),from=r?.callUsers.get(s.id),to=r?.callUsers.get(d?.to);
+ if(!from||!to||d.to===s.id||!d.data||typeof d.data!=='object'||Array.isArray(d.data))return;
+ const cameraPair=from.role==='camera'&&to.role==='camera';
+ const cameraToViewer=from.role==='camera'&&to.role==='spectator'&&from.sharing;
+ const viewerToCamera=from.role==='spectator'&&to.role==='camera'&&to.sharing;
+ if(!(cameraPair||cameraToViewer||viewerToCamera))return;
  let len;try{len=JSON.stringify(d.data).length}catch{return}
  if(len>16000)return;
  io.to(d.to).emit('call:signal',{from:s.id,data:d.data});
