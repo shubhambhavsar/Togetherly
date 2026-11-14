@@ -122,10 +122,13 @@ $('discoverForm').onsubmit=async e=>{
  if(!searchReady){$('searchHint').textContent='In-app search requires a YouTube API key. Browse YouTube, copy a video, then tap Paste on Togetherly.';return}
  searching=true;$('searchHint').textContent='Looking for something good…';
  try{
-  const params=new URLSearchParams({q,room,sid:socket.id});
-  const response=await fetch('/api/search?'+params.toString(),{cache:'no-store'});
-  const data=await response.json();
-  if(!response.ok)throw Error(data.error||'Search unavailable');
+  const data=await new Promise((resolve,reject)=>{
+    socket.timeout(13000).emit('discover:search',{q},(err,result)=>{
+      if(err)reject(Error('Search timed out. Please try again.'));
+      else if(result?.error)reject(Error(result.error));
+      else resolve(result)
+    })
+  });
   const results=$('discoverResults');results.replaceChildren();
   for(const item of data.items||[])results.append(createResult(item));
   $('searchHint').textContent=(data.items||[]).length?'Results may vary by region or embedding permissions.':'No playable results. Try different words.';
