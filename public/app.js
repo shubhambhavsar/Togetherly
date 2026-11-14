@@ -4,7 +4,7 @@ const socket=io({reconnection:true,reconnectionDelay:500});
 const roomFromPath=location.pathname.match(/^\/room\/([a-f0-9]{24})$/)?.[1];
 let room=null,me=null,participants=[],player=null,playerReady=false,ytReady=false,applying=false,lastState=null,version=0;
 let localStream=null,callActive=false,callJoining=false,iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
-let callMembers=[],unread=0,chatOpen=false;
+let callMembers=[],unread=0,chatOpen=false,callMinimized=false;
 const connections=new Map(),remoteStreams=new Map(),candidateQueues=new Map(),videoTiles=new Map();
 const toast=msg=>{const el=$('toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3800)};
 function notice(msg){$('notice').textContent=msg}
@@ -23,7 +23,7 @@ $('copy').onclick=async()=>{const url=location.origin+'/room/'+room;try{await na
 $('leave').onclick=()=>{leaveCall();location.href='/'};
 function showMembers(){for(const [id,item] of videoTiles){if(id!=='self'){const label=item.tile.querySelector('.tile-label');if(label)label.textContent=participants.find(p=>p.id===id)?.name||'Participant'}}const box=$('members');box.replaceChildren();$('count').textContent=participants.length+' watching together';participants.forEach(m=>{const row=document.createElement('div');row.className='member';const label=document.createElement('span'),avatar=document.createElement('span');avatar.className='avatar';avatar.textContent=m.name.charAt(0).toUpperCase();label.append(avatar,document.createTextNode(m.name+(m.id===me?' (you)':'')));row.append(label);if(callMembers.includes(m.id)){const status=document.createElement('span');status.className='pill';status.textContent='● In call';row.append(status)}box.append(row)});$('call').textContent=callActive?'In video call':callMembers.length?'Join ongoing call':'Join video call';$('call').disabled=callActive||callJoining}
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
-socket.on('call:members',ids=>{callMembers=ids;showMembers();$('callStatus').textContent=callActive?ids.length+' in call':(ids.length?ids.length+' available':'Not in call')});
+socket.on('call:members',ids=>{callMembers=ids;syncCallDock();showMembers();$('callStatus').textContent=callActive?ids.length+' in call':(ids.length?ids.length+' available':'Not in call')});
 function addMessage(m,notify=true){const line=document.createElement('div');line.className='msg',name=document.createElement('b');name.textContent=m.name+': ';line.append(name,document.createTextNode(m.text));$('chat').append(line);$('chat').scrollTop=$('chat').scrollHeight;if(notify&&!chatOpen&&matchMedia('(max-width:850px)').matches){unread=Math.min(99,unread+1);$('unread').textContent=unread;$('unread').classList.remove('hidden')}}
 socket.on('message',m=>addMessage(m));
 $('chatForm').onsubmit=e=>{e.preventDefault();const text=$('chatText').value.trim();if(text){socket.emit('message',{text});$('chatText').value=''}};
@@ -151,13 +151,20 @@ function removePeer(id){
  connections.delete(id);candidateQueues.delete(id);remoteStreams.delete(id);
  videoTiles.get(id)?.tile.remove();videoTiles.delete(id);
 }
+function syncCallDock(){
+ $('callBubbleCount').textContent=String(callMembers.length||1);
+ $('callBubble').classList.toggle('hidden',!callActive||!callMinimized);
+ $('callOverlay').classList.toggle('collapsed',callActive&&callMinimized);
+ $('minimizeCall').disabled=!callActive;
+}
 function setCallUI(active){
  $('callOverlay').classList.toggle('hidden',!active);
  $('hangup').classList.toggle('hidden',!active);
  $('mic').disabled=!active;$('camera').disabled=!active;$('call').disabled=active||callJoining;
  $('mic').textContent='Mute mic';$('camera').textContent='Camera off';
  $('callStatus').textContent=active?'Connecting…':'Not in call';
- showMembers();
+ if(!active)callMinimized=false;
+ syncCallDock();showMembers();
 }
 async function leaveCall(send=true){
  if(send&&socket.connected&&callActive)socket.emit('call:leave');
@@ -238,6 +245,9 @@ $('hangup').onclick=()=>leaveCall(true);
 $('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute mic':'Unmute mic'};
 $('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Camera off':'Camera on'};
 $('expandCall').onclick=()=>{$('callOverlay').classList.toggle('expanded');$('expandCall').textContent=$('callOverlay').classList.contains('expanded')?'⤡':'⤢'};
+$('minimizeCall').onclick=()=>{if(!callActive)return;callMinimized=true;syncCallDock()};
+$('callBubble').onclick=()=>{if(!callActive)return;callMinimized=false;syncCallDock()};
+
 socket.on('call:peer-joined',d=>{if(callActive&&d.id!==me)toast((participants.find(p=>p.id===d.id)?.name||'Someone')+' joined the call')});
 socket.on('call:peer-left',d=>removePeer(d.id));
 socket.on('call:signal',onSignal);
