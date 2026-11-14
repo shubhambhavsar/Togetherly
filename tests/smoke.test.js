@@ -71,28 +71,26 @@ test('two camera seats automatically publish to room spectators',async()=>{
  assert.ok(relayed.some(x=>x.event==='state'));
 });
 
-test('fullscreen preserves controls in the same canvas',()=>{
+test('fullscreen keeps cameras and Exit, while chat stays outside',()=>{
  assert.ok(html.includes('id="fullscreenToggle"'));
  assert.ok(html.includes('id="videoShell"'));
  assert.ok(html.includes('id="callOverlay"'));
- assert.ok(html.includes('id="chatBubble"'));
+ assert.ok(!html.includes('id="chatBubble"'),'No fullscreen chat button');
  const start=html.indexOf('id="videoShell"');
  const end=html.indexOf('class="player-toolbar"',start);
  assert.ok(start>0&&end>start);
- assert.ok(html.indexOf('id="callOverlay"',start)>start);
- assert.ok(html.indexOf('id="callOverlay"',start)<end);
- assert.ok(html.indexOf('id="fullscreenToggle"',start)>start);
- assert.ok(html.indexOf('id="fullscreenToggle"',start)<end);
- assert.ok(html.indexOf('id="chatBubble"',start)>start);
- assert.ok(html.indexOf('id="chatBubble"',start)<end);
+ assert.ok(html.indexOf('id="callOverlay"',start)>start&&html.indexOf('id="callOverlay"',start)<end);
+ assert.ok(html.indexOf('id="fullscreenToggle"',start)>start&&html.indexOf('id="fullscreenToggle"',start)<end);
+ assert.ok(html.indexOf('id="chatPanel"')>end,'Chat drawer stays outside fullscreen player');
  assert.ok(frontend.includes("fs:0"));
  assert.ok(frontend.includes('theaterShell.requestFullscreen('));
- assert.ok(frontend.includes('theaterShell.appendChild(theaterChat)'));
- assert.ok(frontend.includes('theaterAnchor.after(theaterChat)'));
+ assert.ok(!frontend.includes('theaterShell.appendChild(theaterChat)'),'Fullscreen must not reparent chat');
+ assert.ok(frontend.includes('if(active&&chatOpen)toggleChat(false)'),'Fullscreen must close chat');
+ assert.ok(frontend.includes("if(show&&theaterActive())return;"),'Fullscreen must not open chat');
  assert.ok(frontend.includes('theaterFallback=true'));
- const css=fs.readFileSync(path.join(root,'public/bluehour.css'),'utf8');
- assert.ok(css.includes('.video-shell.pseudo-fullscreen'));
- assert.ok(css.includes('.video-shell.theater-mode #chatPanel.chat-open'));
+ const css=fs.readFileSync(path.join(root,'public/no-fullscreen-chat.css'),'utf8');
+ assert.ok(css.includes('body.theater-lock #chatPanel'),'Fullscreen chat drawer must be hidden');
+ assert.ok(css.includes('.theater-dock-divider{display:none'),'Dock must not contain unused separator');
 });
 test('camera surface cycles compact, minimized, enlarged, then compact',()=>{
  assert.ok(html.includes('id="callBubble"'),'Minimized camera bubble is required');
@@ -216,46 +214,30 @@ test('TURN health response indicates configuration presence only',()=>{
  assert.ok(!backend.includes("res.json({ok:true,relayKey"),'Health response must not leak credentials');
 });
 
-test('theater dock groups Exit fullscreen and a real chat icon',()=>{
- const css=fs.readFileSync(path.join(root,'public/cinema-dock.css'),'utf8');
- for(const id of ['theaterDock','fullscreenToggle','chatBubble','toolbarChat','toolbarUnread'])
-  assert.ok(html.includes('id="'+id+'"'),'Missing dock control: '+id);
- const dockStart=html.indexOf('id="theaterDock"');
- const dockEnd=html.indexOf('id="fullscreenToggle"',dockStart);
- const chatIndex=html.indexOf('id="chatBubble"',dockStart);
- assert.ok(dockStart>0&&dockEnd>dockStart&&chatIndex>dockEnd,'Fullscreen and chat controls must share the dock');
- assert.ok(!html.includes('☏ Chat'),'Phone-style glyph must not be used for chat');
- assert.ok(html.includes('M20 11.5a8.5'),'Use a speech-bubble icon');
- assert.ok(html.includes('/cinema-dock.css?v=1'),'Dock CSS must load after earlier styles');
- assert.ok(css.includes('.theater-dock')&&css.includes('translateX(-50%)'),'Dock should center above playback controls');
- assert.ok(css.includes('body:not(.theater-lock) #chatPanel.chat-open'),'Chat button must open a usable drawer outside fullscreen');
- assert.ok(frontend.includes("$('toolbarChat').onclick=()=>toggleChat(!chatOpen)"),'Normal-mode chat must work');
- assert.ok(frontend.includes("$('chatBubble').onclick=()=>toggleChat(!chatOpen)"),'Fullscreen chat must work');
+test('theater dock contains only Exit fullscreen; chat works outside',()=>{
+ for(const id of ['theaterDock','fullscreenToggle','toolbarChat','toolbarUnread'])
+  assert.ok(html.includes('id="'+id+'"'),'Missing control: '+id);
+ assert.ok(!html.includes('id="chatBubble"'),'Fullscreen chat button must be removed');
+ assert.ok(!html.includes('id="unread"'),'No orphaned badge inside fullscreen');
+ assert.ok(html.includes('/cinema-dock.css?v=1'));
+ assert.ok(html.includes('/no-fullscreen-chat.css?v=1'));
+ assert.ok(frontend.includes("$('toolbarChat').onclick=()=>toggleChat(!chatOpen)"),'Normal room chat should work');
+ assert.ok(!frontend.includes("$('chatBubble').onclick"),'Fullscreen chat action should be removed');
+ assert.ok(!frontend.includes('theaterAnchor'),'Chat stays in its original sidebar');
 });
-
-test('mobile theater dock is compact in portrait and landscape',()=>{
+test('mobile fullscreen keeps the single right-edge Exit control',()=>{
  const compact=fs.readFileSync(path.join(root,'public/compact-mobile-dock.css'),'utf8');
- assert.ok(html.includes('/compact-mobile-dock.css?v=1'),'Compact dock stylesheet is needed');
- assert.ok(html.includes('/mobile-chat-fix.css?v=1'),'Keyboard-aware chat styles must load after dock');
- assert.ok(html.includes('class="theater-chat-label"'),'Chat label should be hidden visually on mobile');
- assert.ok(html.includes('id="theaterLabel"'),'Exit fullscreen label must remain accessible');
- assert.ok(html.includes('aria-label="Exit fullscreen"'),'Fullscreen button needs accessibility label');
- assert.ok(html.includes('aria-label="Open chat"'),'Chat button needs accessibility label');
- assert.ok(compact.includes('(pointer:coarse) and (max-width:1100px)'),'Landscape phones should receive compact controls');
- assert.ok(compact.includes('width:44px!important'),'Each button must have a compact touch target');
- assert.ok(compact.includes('height:44px!important'),'Each button must have a usable touch target');
- assert.ok(compact.includes('#videoShell.theater-mode #theaterLabel'),'Hide lengthy fullscreen text on mobile');
- assert.ok(compact.includes('.theater-chat-label'),'Hide chat text on mobile');
- assert.ok(compact.includes('flex-direction:column!important'),'The mobile dock must be vertical');
- assert.ok(compact.includes('right:max(7px,env(safe-area-inset-right))!important'),'Dock must hug the safe right edge');
- assert.ok(compact.includes('left:auto!important'),'Dock must not be centered');
- assert.ok(compact.includes('transform:translateY(-50%)!important'),'Dock should align along the right edge');
- assert.ok(compact.includes('width:50px!important'),'The dock should be slim');
- assert.ok(compact.includes('height:1px!important'),'Vertical divider should be horizontal');
- assert.ok(compact.includes('right:max(64px,calc(env(safe-area-inset-right) + 64px))!important'),'Chat must open beside the rail rather than cover it');
- assert.ok(compact.includes('.unread:not(.hidden)'),'Unread count should remain available');
+ const noChat=fs.readFileSync(path.join(root,'public/no-fullscreen-chat.css'),'utf8');
+ assert.ok(html.includes('/compact-mobile-dock.css?v=1'));
+ assert.ok(html.includes('/no-fullscreen-chat.css?v=1'));
+ assert.ok(html.includes('id="theaterLabel"'));
+ assert.ok(html.includes('aria-label="Exit fullscreen"'));
+ assert.ok(compact.includes('(pointer:coarse) and (max-width:1100px)'));
+ assert.ok(noChat.includes('width:50px!important'),'Single button rail should be narrow');
+ assert.ok(noChat.includes('height:44px!important'),'Exit button must remain tap-friendly');
+ assert.ok(noChat.includes('right:max(7px,env(safe-area-inset-right))!important'),'Exit button stays at right edge');
+ assert.ok(html.includes('id="toolbarChat"'),'Normal-mode chat remains');
 });
-
 test('automatic camera viewing does not request microphone or camera permission',()=>{
  const start=frontend.indexOf('async function startSpectatorView(){');
  const end=frontend.indexOf('async function joinCall(){',start);
@@ -269,23 +251,29 @@ test('automatic camera viewing does not request microphone or camera permission'
  assert.ok(frontend.includes("if(callRole==='spectator')video.muted=true"),'Passive video should autoplay without blocked audio');
  assert.ok(html.includes('available to everyone with this room link'),'Explicit camera privacy notice must be shown');
 });
-test('mobile fullscreen chat follows visible viewport above the keyboard',()=>{
+test('normal mobile chat remains keyboard responsive outside fullscreen',()=>{
  const css=fs.readFileSync(path.join(root,'public/mobile-chat-fix.css'),'utf8');
- assert.ok(frontend.includes('window.visualViewport'), 'VisualViewport API needed for keyboard detection');
- assert.ok(frontend.includes("window.visualViewport?.addEventListener('resize'"), 'Resize listener is required');
- assert.ok(frontend.includes("window.visualViewport?.addEventListener('scroll'"), 'Visual viewport scrolling must be handled');
- assert.ok(frontend.includes("document.activeElement===$('chatText')"),'Only typing should activate keyboard layout');
- assert.ok(frontend.includes("theaterShell.classList.toggle('chat-typing',typing)"),'Theater chat must resize while typing');
- assert.ok(css.includes('var(--chat-visible-height,100dvh)'),'Chat should use actual visible height');
- assert.ok(css.includes('top:calc(var(--chat-visible-top,0px) + 8px)'),'Chat should follow visible top');
- assert.ok(css.includes('font-size:16px!important'),'Phone text input must avoid iOS zoom');
- assert.ok(css.includes('min-height:0!important'),'Messages must shrink without hiding the composer');
- assert.ok(html.indexOf('/mobile-chat-fix.css?v=1')>html.indexOf('/compact-mobile-dock.css?v=1'),'Keyboard CSS must override dock styles');
+ assert.ok(frontend.includes('window.visualViewport'),'Mobile chat should use VisualViewport');
+ assert.ok(frontend.includes("window.visualViewport?.addEventListener('resize'"),'Resize listener required');
+ assert.ok(css.includes('body.chat-typing:not(.theater-lock)'),'Keyboard layout applies to normal room');
+ assert.ok(css.includes('font-size:16px!important'),'Avoid iOS input zoom');
+ assert.ok(frontend.includes("if(show&&theaterActive())return;"),'Theater chat should not open');
+ assert.ok(html.indexOf('/no-fullscreen-chat.css?v=1')>html.indexOf('/mobile-chat-fix.css?v=1'),'Fullscreen chat suppression takes CSS precedence');
 });
-
 test('spectator camera audio unlock does not minimize the video tile',()=>{
  assert.ok(frontend.includes('video.muted=true'), 'Passive camera playback must start muted for mobile compatibility');
  assert.ok(frontend.includes('event.stopPropagation()'), 'Unmuting must not trigger camera preview resize');
  assert.ok(frontend.includes("tileStatus(id,'Tap for audio')"), 'Spectator should see an audio activation hint');
  assert.ok(frontend.includes("video.play().then(()=>"), 'Audio activation should retry media playback after a gesture');
+});
+
+test('search discovery hides technical eligibility notices and player shows simple unavailable error',()=>{
+ assert.ok(!frontend.includes('Prechecked for embedding and Canada/India availability.'),'No technical success message');
+ assert.ok(!frontend.includes('Rights claims can still block playback.'),'No rights warning in success message');
+ assert.ok(frontend.includes("playerHelp('This video is not available. Choose something else.',true)"),'Generic playback failure missing');
+ assert.ok(frontend.includes("$('chooseAnother').classList.remove('hidden')"),'User must be able to find another video');
+ assert.ok(frontend.includes("if(blocked)markUnplayable(lastState?.video)"),'Known blocked videos should be remembered');
+ assert.ok(!html.includes('YouTube may still restrict some embedded videos even after eligibility checks.'),'No technical search banner');
+ assert.ok(frontend.includes("No available videos found. Try another search."),'Empty search should have simple feedback');
+ assert.ok(backend.includes("status?.embeddable===true"),'Keep backend filtering for video availability');
 });
