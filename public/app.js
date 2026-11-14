@@ -1,45 +1,127 @@
 'use strict';
-const $=id=>document.getElementById(id),socket=io({reconnection:true}),roomFromPath=location.pathname.match(/^\/room\/([a-f0-9]{24})$/)?.[1];
-let room=null,me=null,participants=[],player=null,playerReady=false,ytReady=false,applying=false,lastState=null,version=0,rtc=null,localStream=null,remoteId=null,inviteFrom=null,callStarted=false,iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
-const toast=msg=>{const el=$('toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3500)};
+const $=id=>document.getElementById(id);
+const socket=io({reconnection:true,reconnectionDelay:500});
+const roomFromPath=location.pathname.match(/^\/room\/([a-f0-9]{24})$/)?.[1];
+let room=null,me=null,participants=[],player=null,playerReady=false,ytReady=false,applying=false,lastState=null,version=0;
+let localStream=null,callActive=false,callJoining=false,iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+let callMembers=[],unread=0,chatOpen=false;
+const connections=new Map(),remoteStreams=new Map(),candidateQueues=new Map(),videoTiles=new Map();
+const toast=msg=>{const el=$('toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3800)};
 function notice(msg){$('notice').textContent=msg}
 function nickname(){return $('name').value.trim().slice(0,25)||'Guest'}
-function setupRoom(data){room=data.id;me=socket.id;participants=data.members||[];lastState=data.state;version=data.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();(data.messages||[]).forEach(addMessage);initPlayer()}
-function create(){socket.emit('create',{name:nickname()},d=>{if(d.error)return toast(d.error);setupRoom(d)})}
-function join(){socket.emit('join',{id:roomFromPath||room,name:nickname()},d=>{if(d.error)return toast(d.error);setupRoom(d)})}
+function setupRoom(d){room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();(d.messages||[]).forEach(m=>addMessage(m,false));initPlayer()}
+function create(){socket.emit('create',{name:nickname()},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
+function join(){socket.emit('join',{id:roomFromPath||room,name:nickname()},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
 if(roomFromPath){$('joinbox').classList.remove('hidden');$('create').textContent='Create a different room'}
-$('copy').onclick=()=>{const url=location.origin+'/room/'+room;navigator.clipboard?.writeText(url).then(()=>toast('Invite link copied')).catch(()=>prompt('Copy this link:',url))||promptIfNoClipboard();function promptIfNoClipboard(){if(!navigator.clipboard)prompt('Copy this link:',url)}};
-$('leave').onclick=()=>{cleanupCall();location.href='/'};
-function showMembers(){const box=$('members');box.replaceChildren();$('count').textContent=participants.length+' watching together';participants.forEach(m=>{const row=document.createElement('div');row.className='member';const label=document.createElement('span');const icon=document.createElement('span');icon.className='avatar';icon.textContent=m.name.charAt(0).toUpperCase();label.append(icon,document.createTextNode(m.name+(m.id===me?' (you)':'')));row.append(label);if(m.id!==me){const btn=document.createElement('button');btn.className='btn outline small';btn.textContent='Call';btn.onclick=()=>startCall(m.id);row.append(btn)}box.append(row)});$('call').disabled=participants.filter(m=>m.id!==me).length===0}
-socket.on('members',m=>{participants=m;showMembers();if(remoteId&&!m.some(x=>x.id===remoteId))cleanupCall()});
-function addMessage(m){const line=document.createElement('div');line.className='msg';const name=document.createElement('b');name.textContent=m.name+': ';line.append(name,document.createTextNode(m.text));$('chat').append(line);$('chat').scrollTop=$('chat').scrollHeight}
-socket.on('message',addMessage);
+$('copy').onclick=async()=>{const url=location.origin+'/room/'+room;try{await navigator.clipboard.writeText(url);toast('Invite link copied')}catch{prompt('Copy this room link:',url)}};
+$('leave').onclick=()=>{leaveCall();location.href='/'};
+function showMembers(){const box=$('members');box.replaceChildren();$('count').textContent=participants.length+' watching together';participants.forEach(m=>{const row=document.createElement('div');row.className='member';const label=document.createElement('span'),avatar=document.createElement('span');avatar.className='avatar';avatar.textContent=m.name.charAt(0).toUpperCase();label.append(avatar,document.createTextNode(m.name+(m.id===me?' (you)':'')));row.append(label);if(callMembers.includes(m.id)){const status=document.createElement('span');status.className='pill';status.textContent='● In call';row.append(status)}box.append(row)});$('call').textContent=callActive?'In video call':callMembers.length?'Join ongoing call':'Join video call';$('call').disabled=callActive||callJoining}
+socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
+socket.on('call:members',ids=>{callMembers=ids;showMembers();$('callStatus').textContent=callActive?ids.length+' in call':(ids.length?ids.length+' available':'Not in call')});
+function addMessage(m,notify=true){const line=document.createElement('div');line.className='msg',name=document.createElement('b');name.textContent=m.name+': ';line.append(name,document.createTextNode(m.text));$('chat').append(line);$('chat').scrollTop=$('chat').scrollHeight;if(notify&&!chatOpen&&matchMedia('(max-width:850px)').matches){unread=Math.min(99,unread+1);$('unread').textContent=unread;$('unread').classList.remove('hidden')}}
+socket.on('message',m=>addMessage(m));
 $('chatForm').onsubmit=e=>{e.preventDefault();const text=$('chatText').value.trim();if(text){socket.emit('message',{text});$('chatText').value=''}};
+function toggleChat(show){chatOpen=show;$('chatPanel').classList.toggle('chat-open',show);if(show){unread=0;$('unread').classList.add('hidden');setTimeout(()=>$('chatText').focus(),50)}}
+$('chatBubble').onclick=()=>toggleChat(!chatOpen);$('closeChat').onclick=()=>toggleChat(false);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&chatOpen)toggleChat(false)});
 $('load').onclick=()=>{if(!room)return;socket.emit('video',{url:$('videoURL').value},d=>{if(d?.error)toast(d.error)})};
-window.onYouTubeIframeAPIReady=()=>{ytReady=true;if(room)initPlayer()};
-function initPlayer(){if(player||!ytReady||!room)return;player=new YT.Player('player',{width:'100%',height:'100%',videoId:lastState?.video||'M7lc1UVf-VE',playerVars:{playsinline:1,rel:0,origin:location.origin},events:{onReady:()=>{playerReady=true;applyState(lastState)},onStateChange:e=>{if(applying||!room||!playerReady)return;if(e.data===YT.PlayerState.PLAYING)sendPlayback('play');else if(e.data===YT.PlayerState.PAUSED)sendPlayback('pause')},onError:e=>notice('This YouTube video may be unavailable or not embeddable (error '+e.data+').')}})}
-function sendPlayback(action){if(!playerReady||applying)return;const p=player.getCurrentTime();socket.emit('playback',{action,position:p,version})}
-function applyState(s){if(!s||!playerReady)return;const previous=lastState;lastState=s;version=s.version;applying=true;try{const video=player.getVideoData()?.video_id;if(video!==s.video){player.cueVideoById(s.video,s.position);notice('Video changed — press Play if your browser blocks autoplay')}else{const current=player.getCurrentTime();if(Math.abs(current-s.position)>1.7)player.seekTo(s.position,true);if(s.playing&&player.getPlayerState()!==YT.PlayerState.PLAYING){player.playVideo()}else if(!s.playing&&player.getPlayerState()===YT.PlayerState.PLAYING)player.pauseVideo()}$('syncLabel').textContent='Synced';if(previous?.video!==s.video)$('videoURL').value='https://www.youtube.com/watch?v='+s.video}catch(e){console.warn(e)}finally{setTimeout(()=>applying=false,800)}}
-socket.on('state',s=>applyState(s));
+window.onYouTubeIframeAPIReady=()=>{ytReady=true;initPlayer()};
+function initPlayer(){if(player||!ytReady||!room)return;player=new YT.Player('player',{width:'100%',height:'100%',videoId:lastState?.video||'M7lc1UVf-VE',playerVars:{playsinline:1,rel:0,origin:location.origin},events:{onReady:()=>{playerReady=true;applyState(lastState)},onStateChange:e=>{if(applying||!room||!playerReady)return;if(e.data===YT.PlayerState.PLAYING)sendPlayback('play');else if(e.data===YT.PlayerState.PAUSED)sendPlayback('pause')},onError:e=>notice('This video may be unavailable or cannot be embedded (YouTube error '+e.data+').')}})}
+function sendPlayback(action){if(!playerReady||applying)return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
+function applyState(s){if(!s)return;const old=lastState;lastState=s;version=s.version;if(!playerReady)return;applying=true;try{const video=player.getVideoData()?.video_id;if(video!==s.video){player.cueVideoById(s.video,s.position);notice('New video ready. Tap Play if your browser blocks autoplay.')}else{const t=player.getCurrentTime();if(Math.abs(t-s.position)>2.5)player.seekTo(s.position,true);const status=player.getPlayerState();if(s.playing&&status!==YT.PlayerState.PLAYING)player.playVideo();else if(!s.playing&&status===YT.PlayerState.PLAYING)player.pauseVideo()}$('syncLabel').textContent='In sync';if(old?.video!==s.video)$('videoURL').value='https://www.youtube.com/watch?v='+s.video}catch(e){console.warn('Player sync:',e)}finally{setTimeout(()=>applying=false,850)}}
+socket.on('state',applyState);
 $('play').onclick=()=>{if(playerReady){player.playVideo();sendPlayback('play')}};
 $('pause').onclick=()=>{if(playerReady){player.pauseVideo();sendPlayback('pause')}};
 $('sync').onclick=()=>socket.emit('sync');
-setInterval(()=>{if(!room||!playerReady)return;socket.emit('sync')},18000);
-setInterval(()=>{if(!room||!playerReady||applying)return;const cur=player.getCurrentTime();if(Number.isFinite(cur)&&lastState&&Math.abs(cur-lastState.position)>4&&player.getPlayerState()!==YT.PlayerState.BUFFERING)sendPlayback('seek')},5000);
-socket.on('connect',()=>{me=socket.id;if(room){socket.emit('join',{id:room,name:nickname()},d=>{if(d.error)return toast(d.error);lastState=d.state;version=d.state.version;participants=d.members;showMembers();socket.emit('sync')})}});
-socket.on('disconnect',()=>{notice('Connection lost. Reconnecting…');cleanupCall()});
-async function ensureMedia(){if(localStream)return localStream;localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:{facingMode:'user'}});$('local').srcObject=localStream;return localStream}
-async function prepareCall(id){remoteId=id;await ensureMedia();try{iceConfig=await(await fetch('/api/rtc')).json()}catch{};rtc=new RTCPeerConnection(iceConfig);localStream.getTracks().forEach(t=>rtc.addTrack(t,localStream));rtc.ontrack=e=>{$('remote').srcObject=e.streams[0]};rtc.onicecandidate=e=>{if(e.candidate)socket.emit('call:signal',{to:remoteId,data:{candidate:e.candidate}})};rtc.onconnectionstatechange=()=>{const s=rtc?.connectionState||'';$('callStatus').textContent=s;if(['failed','closed','disconnected'].includes(s)&&s!=='disconnected')toast('Call connection ended')};callStarted=true;$('hangup').classList.remove('hidden');$('mic').disabled=false;$('camera').disabled=false;$('callStatus').textContent='Connecting'}
-function cleanupCall(){if(rtc){rtc.ontrack=null;rtc.onicecandidate=null;rtc.close();rtc=null}localStream?.getTracks().forEach(t=>t.stop());localStream=null;$('local').srcObject=null;$('remote').srcObject=null;remoteId=null;callStarted=false;$('hangup').classList.add('hidden');$('mic').disabled=true;$('camera').disabled=true;$('mic').textContent='Mute mic';$('camera').textContent='Camera off';$('callStatus').textContent='Not in call'}
-async function startCall(id){if(callStarted)return toast('End the current call first');try{await ensureMedia();remoteId=id;$('callStatus').textContent='Ringing…';socket.emit('call:invite',{to:id})}catch(e){toast('Camera or microphone permission denied');cleanupCall()}}
-$('call').onclick=()=>{const p=participants.find(x=>x.id!==me);if(p)startCall(p.id)};
-socket.on('call:incoming',d=>{if(callStarted||remoteId){socket.emit('call:decline');return}inviteFrom=d.from;$('caller').textContent=d.name+' is calling you';$('inviteDialog').classList.remove('hidden')});
-$('accept').onclick=async()=>{if(!inviteFrom)return;const from=inviteFrom;inviteFrom=null;$('inviteDialog').classList.add('hidden');try{await prepareCall(from);socket.emit('call:accept',{from})}catch(e){cleanupCall();socket.emit('call:decline');toast('Could not access camera/microphone')}};
-$('decline').onclick=()=>{$('inviteDialog').classList.add('hidden');inviteFrom=null;socket.emit('call:decline')};
-socket.on('call:accepted',async d=>{try{await prepareCall(d.from);const offer=await rtc.createOffer();await rtc.setLocalDescription(offer);socket.emit('call:signal',{to:d.from,data:{description:rtc.localDescription}})}catch(e){toast('Could not start video call');socket.emit('call:end');cleanupCall()}});
-socket.on('call:signal',async d=>{if(!rtc||d.from!==remoteId)return;try{if(d.data?.description){await rtc.setRemoteDescription(d.data.description);if(d.data.description.type==='offer'){const answer=await rtc.createAnswer();await rtc.setLocalDescription(answer);socket.emit('call:signal',{to:remoteId,data:{description:rtc.localDescription}})}}else if(d.data?.candidate)await rtc.addIceCandidate(d.data.candidate)}catch(e){console.warn('WebRTC',e);toast('Call connection issue')}});
-socket.on('call:ended',()=>{cleanupCall();toast('Call ended')});socket.on('call:declined',()=>{cleanupCall();toast('Call declined')});
-$('hangup').onclick=()=>{socket.emit('call:end');cleanupCall()};
-$('mic').onclick=()=>{if(!localStream)return;const t=localStream.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute mic':'Unmute mic'};
-$('camera').onclick=()=>{if(!localStream)return;const t=localStream.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Camera off':'Camera on'};
+setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')},22000);
+socket.on('connect',()=>{me=socket.id;if(room){leaveCall(false);socket.emit('join',{id:room,name:nickname()},d=>{if(d?.error){toast(d.error);notice('Room expired. Please create a new room.');return}lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];showMembers();socket.emit('sync');notice('Reconnected. Rejoin your video call if needed.')})}});
+socket.on('disconnect',()=>{notice('Connection lost. Trying to reconnect…');leaveCall(false)});
+async function getMedia(){
+ if(localStream&&localStream.active)return localStream;
+ if(!navigator.mediaDevices?.getUserMedia)throw Error('Camera and microphone need HTTPS and a compatible browser');
+ localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:{facingMode:'user',width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:24}}});
+ return localStream
+}
+function displayTile(id,isLocal=false){
+ if(videoTiles.has(id))return videoTiles.get(id).video;
+ const tile=document.createElement('div');tile.className='call-tile'+(isLocal?' local':'');
+ const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=isLocal;
+ video.setAttribute('playsinline','');video.setAttribute('autoplay','');
+ const label=document.createElement('span');label.className='tile-label';label.textContent=isLocal?'You':(participants.find(x=>x.id===id)?.name||'Guest');
+ tile.append(video,label);
+ if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=()=>{video.play().catch(()=>toast('Tap again to enable call audio'))}}
+ videoTiles.set(id,{tile,video});$('callGrid').append(tile);$('callOverlay').classList.remove('hidden');return video
+}
+function tileStatus(id,msg){const node=videoTiles.get(id)?.tile.querySelector('.tile-status');if(node)node.textContent=msg}
+function removePeer(id){
+ const pc=connections.get(id);if(pc){pc.onicecandidate=null;pc.ontrack=null;pc.onconnectionstatechange=null;pc.close()}
+ connections.delete(id);candidateQueues.delete(id);remoteStreams.delete(id);
+ videoTiles.get(id)?.tile.remove();videoTiles.delete(id);
+}
+function setCallUI(active){
+ $('callOverlay').classList.toggle('hidden',!active);
+ $('hangup').classList.toggle('hidden',!active);
+ $('mic').disabled=!active;$('camera').disabled=!active;$('call').disabled=active||callJoining;
+ $('mic').textContent='Mute mic';$('camera').textContent='Camera off';
+ $('callStatus').textContent=active?'Connecting…':'Not in call';
+ showMembers();
+}
+async function leaveCall(send=true){
+ if(send&&socket.connected&&callActive)socket.emit('call:leave');
+ callActive=false;callJoining=false;
+ [...connections.keys()].forEach(removePeer);
+ localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+ videoTiles.get('self')?.tile.remove();videoTiles.delete('self');
+ $('callGrid').replaceChildren();$('callOverlay').classList.add('hidden');setCallUI(false)
+}
+async function createPeer(id,initiator=false){
+ if(connections.has(id))return connections.get(id);
+ if(!callActive||!localStream)return null;
+ const pc=new RTCPeerConnection(iceConfig);connections.set(id,pc);
+ const remote=new MediaStream();remoteStreams.set(id,remote);
+ const video=displayTile(id);video.srcObject=remote;
+ localStream.getTracks().forEach(track=>pc.addTrack(track,localStream));
+ pc.ontrack=e=>{const stream=remoteStreams.get(id);if(!stream)return;const tracks=e.streams?.[0]?.getTracks()||[e.track];for(const track of tracks)if(!stream.getTracks().some(t=>t.id===track.id))stream.addTrack(track);video.srcObject=stream;video.play().catch(()=>tileStatus(id,'Tap to play audio'))};
+ pc.onicecandidate=e=>{if(e.candidate&&socket.connected)socket.emit('call:signal',{to:id,data:{candidate:e.candidate.toJSON()}})};
+ pc.onconnectionstatechange=()=>{if(connections.get(id)!==pc)return;const state=pc.connectionState;if(state==='connected'){tileStatus(id,'');tileStatus(id,'');const status=videoTiles.get(id)?.tile.querySelector('.tile-status');if(status)status.remove();$('callStatus').textContent='Connected'}else if(state==='failed'){tileStatus(id,'Connection failed');toast('Call could not connect. A TURN relay may be required.')}else if(state==='disconnected'){tileStatus(id,'Reconnecting…')}else tileStatus(id,state)};
+ if(initiator){const offer=await pc.createOffer();await pc.setLocalDescription(offer);socket.emit('call:signal',{to:id,data:{description:pc.localDescription.toJSON()}})}
+ return pc
+}
+async function drainCandidates(id,pc){const q=candidateQueues.get(id)||[];candidateQueues.delete(id);for(const c of q){try{await pc.addIceCandidate(c)}catch(e){console.warn('ICE candidate',e)}}}
+async function onSignal({from,data}){
+ if(!callActive||!participants.some(x=>x.id===from)||!data)return;
+ try{
+  const pc=await createPeer(from,false);if(!pc)return;
+  if(data.description){
+   await pc.setRemoteDescription(new RTCSessionDescription(data.description));
+   await drainCandidates(from,pc);
+   if(data.description.type==='offer'){const answer=await pc.createAnswer();await pc.setLocalDescription(answer);socket.emit('call:signal',{to:from,data:{description:pc.localDescription.toJSON()}})}
+  }else if(data.candidate){
+   if(pc.remoteDescription)await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+   else{if(!candidateQueues.has(from))candidateQueues.set(from,[]);candidateQueues.get(from).push(data.candidate)}
+  }
+ }catch(e){console.error('Call signaling failed',e);tileStatus(from,'Connection error');toast('Call signaling error. Try leaving and rejoining.')}
+}
+async function joinCall(){
+ if(callActive||callJoining||!room)return;
+ callJoining=true;$('call').disabled=true;$('callStatus').textContent='Requesting camera…';
+ try{
+  await getMedia();
+  try{const response=await fetch('/api/rtc');if(response.ok)iceConfig=await response.json()}catch(e){console.warn('RTC configuration unavailable',e)}
+  socket.timeout(10000).emit('call:join',{},async(err,result)=>{
+   if(err||result?.error){toast(result?.error||'Could not join call');leaveCall(false);return}
+   callActive=true;callJoining=false;displayTile('self',true).srcObject=localStream;setCallUI(true);
+   try{for(const id of result.peers||[])await createPeer(id,true)}catch(e){console.error('Offer error',e);toast('Could not connect to a participant')}
+  })
+ }catch(e){toast(e.message||'Camera or microphone permission denied');leaveCall(false)}
+}
+$('call').onclick=joinCall;
+$('hangup').onclick=()=>leaveCall(true);
+$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute mic':'Unmute mic'};
+$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Camera off':'Camera on'};
+$('expandCall').onclick=()=>{$('callOverlay').classList.toggle('expanded');$('expandCall').textContent=$('callOverlay').classList.contains('expanded')?'⤡':'⤢'};
+socket.on('call:peer-joined',d=>{if(callActive&&d.id!==me)toast((participants.find(p=>p.id===d.id)?.name||'Someone')+' joined the call')});
+socket.on('call:peer-left',d=>removePeer(d.id));
+socket.on('call:signal',onSignal);
+window.addEventListener('pagehide',()=>{if(callActive)socket.emit('call:leave');localStream?.getTracks().forEach(t=>t.stop())});
