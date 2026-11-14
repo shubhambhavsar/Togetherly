@@ -29,7 +29,62 @@ socket.on('message',m=>addMessage(m));
 $('chatForm').onsubmit=e=>{e.preventDefault();const text=$('chatText').value.trim();if(text){socket.emit('message',{text});$('chatText').value=''}};
 function toggleChat(show){chatOpen=show;$('chatPanel').classList.toggle('chat-open',show);if(show){unread=0;$('unread').classList.add('hidden');setTimeout(()=>$('chatText').focus(),50)}}
 $('chatBubble').onclick=()=>toggleChat(!chatOpen);$('closeChat').onclick=()=>toggleChat(false);
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&chatOpen)toggleChat(false)});
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Escape')return;
+ if(chatOpen){toggleChat(false);return}
+ if(theaterFallback){theaterFallback=false;updateTheaterUI()}
+});
+
+// A fullscreen YouTube iframe hides every sibling overlay. Fullscreen Togetherly's
+// containing element instead so the call tiles and chat remain in the same top layer.
+const theaterShell=$('videoShell');
+const theaterChat=$('chatPanel');
+const theaterHome=theaterChat.parentNode;
+const theaterAnchor=document.createComment('Restore chat here after theater');
+theaterHome.insertBefore(theaterAnchor,theaterChat);
+let theaterFallback=false;
+function theaterActive(){return document.fullscreenElement===theaterShell||theaterFallback}
+function updateTheaterUI(){
+ const active=theaterActive();
+ theaterShell.classList.toggle('theater-mode',active);
+ theaterShell.classList.toggle('pseudo-fullscreen',theaterFallback);
+ document.body.classList.toggle('theater-lock',active);
+ $('fullscreenToggle').setAttribute('aria-pressed',String(active));
+ $('fullscreenToggle').setAttribute('aria-label',active?'Exit watch fullscreen':'Enter watch fullscreen');
+ $('theaterLabel').textContent=active?'Exit fullscreen':'Fullscreen';
+ if(active){
+  if(theaterChat.parentNode!==theaterShell)theaterShell.appendChild(theaterChat);
+ }else{
+  if(chatOpen)toggleChat(false);
+  if(theaterChat.parentNode!==theaterHome)theaterAnchor.after(theaterChat);
+ }
+}
+async function toggleTheater(){
+ if(theaterActive()){
+  if(document.fullscreenElement===theaterShell){
+   try{await document.exitFullscreen()}catch(e){console.warn('Could not exit fullscreen',e)}
+  }else theaterFallback=false;
+  updateTheaterUI();return;
+ }
+ // Place chat within the fullscreen element before the browser changes top layers.
+ theaterShell.appendChild(theaterChat);
+ // iPhone Safari does not reliably support requestFullscreen on ordinary elements.
+ if(typeof theaterShell.requestFullscreen==='function'&&document.fullscreenEnabled){
+  try{
+   await theaterShell.requestFullscreen({navigationUI:'hide'});
+   theaterFallback=false;
+   updateTheaterUI();return;
+  }catch(e){console.info('Using in-page theater mode:',e)}
+ }
+ theaterFallback=true;
+ updateTheaterUI();
+}
+$('fullscreenToggle').onclick=toggleTheater;
+document.addEventListener('fullscreenchange',()=>{
+ if(document.fullscreenElement!==theaterShell&&theaterFallback===false){updateTheaterUI()}
+ else updateTheaterUI();
+});
+
 $('load').onclick=()=>{if(!room)return;socket.emit('video',{url:$('videoURL').value},d=>{if(d?.error)toast(d.error)})};
 let ytScriptStarted=false,playerTimeout=null;
 function playerHelp(message,error=false){
@@ -50,7 +105,7 @@ function loadYouTubeAPI(){
 function initPlayer(){
  if(player||!ytReady||!room)return;
  playerHelp('Opening YouTube player…');
- try{player=new YT.Player('player',{width:'100%',height:'100%',videoId:lastState?.video||'M7lc1UVf-VE',playerVars:{playsinline:1,rel:0,origin:location.origin},events:{
+ try{player=new YT.Player('player',{width:'100%',height:'100%',videoId:lastState?.video||'M7lc1UVf-VE',playerVars:{playsinline:1,rel:0,fs:0,origin:location.origin},events:{
   onReady:e=>{playerReady=true;try{e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin')}catch{}playerReadyUI();applyState(lastState)},
   onStateChange:e=>{if(applying||!room||!playerReady)return;if(e.data===YT.PlayerState.PLAYING)sendPlayback('play');else if(e.data===YT.PlayerState.PAUSED)sendPlayback('pause')},
   onAutoplayBlocked:()=>notice('Your browser blocked autoplay. Tap the YouTube player to start.'),
@@ -186,4 +241,4 @@ $('expandCall').onclick=()=>{$('callOverlay').classList.toggle('expanded');$('ex
 socket.on('call:peer-joined',d=>{if(callActive&&d.id!==me)toast((participants.find(p=>p.id===d.id)?.name||'Someone')+' joined the call')});
 socket.on('call:peer-left',d=>removePeer(d.id));
 socket.on('call:signal',onSignal);
-window.addEventListener('pagehide',()=>{if(callActive)socket.emit('call:leave');localStream?.getTracks().forEach(t=>t.stop())});
+window.addEventListener('pagehide',()=>{theaterFallback=false;document.body.classList.remove('theater-lock');if(callActive)socket.emit('call:leave');localStream?.getTracks().forEach(t=>t.stop())});
