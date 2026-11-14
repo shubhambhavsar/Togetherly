@@ -50,7 +50,7 @@ test('rooms, queues, two cameras, private spectator access',async()=>{
  assert.ok(relayed.some(x=>x.id==='a'&&x.event==='call:signal'),'Consent allows signaling');
  c.fire('call:signal',{to:'b',data:{description:{type:'offer',sdp:'blocked'}}});
  assert.equal(relayed.some(x=>x.id==='b'&&x.event==='call:signal'),false,'Second camera must give consent independently');
- const queued=await a.ask('queue:add',{url:'https://youtu.be/M7lc1UVf-VE',title:'Example video'});
+ const queued=await a.ask('queue:add',{url:'M7lc1UVf-VE',title:'Example video'});
  assert.equal(queued.ok,true);
  const queueNotification=relayed.find(x=>x.event==='queue:update'&&x.data.length);
  assert.ok(queueNotification,'Queue update must reach the whole room');
