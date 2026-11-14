@@ -15,6 +15,9 @@ const getVideo=x=>{if(typeof x!=='string'||x.length>500)return null;x=x.trim();i
 const roomOf=s=>{const r=rooms.get(s.data.room);return r?.users.has(s.id)?r:null};
 const state=r=>({video:r.video,playing:r.playing,position:r.position+(r.playing?(Date.now()-r.at)/1000:0),version:r.version});
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
+function newRoom(id){return {id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Set(),emptySince:Date.now()}}
+setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
+
 function leaveCall(s) {
  const r=roomOf(s);
  if(!r?.callUsers?.has(s.id))return;
@@ -22,10 +25,12 @@ function leaveCall(s) {
  s.to(r.id).emit('call:peer-left',{id:s.id});
  io.to(r.id).emit('call:members',[...r.callUsers]);
 }
-function leave(s){leaveCall(s);const r=roomOf(s);if(!r)return;r.users.delete(s.id);s.leave(r.id);s.data.room=null;io.to(r.id).emit('members',members(r));if(!r.users.size)rooms.delete(r.id)}
+function leave(s){leaveCall(s);const r=roomOf(s);if(!r)return;r.users.delete(s.id);s.leave(r.id);s.data.room=null;io.to(r.id).emit('members',members(r));if(!r.users.size)r.emptySince=Date.now()}
 io.on('connection',s=>{
-s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r={id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Set()};rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[]})});
-s.on('join',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before joining'});const r=validRoom(d?.id)?rooms.get(d.id):null;if(!r)return ack({error:'Room not found. Ask for a new link.'});if(r.users.size>=8)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:[...r.callUsers]});io.to(r.id).emit('members',members(r))});
+s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r=newRoom(id);rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[]})});
+s.on('join',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before joining'});let r=validRoom(d?.id)?rooms.get(d.id):null;
+ if(!r&&validRoom(d?.id)){r=newRoom(d.id);rooms.set(d.id,r)}
+ if(!r)return ack({error:'Invalid room link'});if(r.users.size>=8)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:[...r.callUsers]});io.to(r.id).emit('members',members(r))});
 s.on('room:rename',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Not in a room'});
  const newName=safeName(d?.name);if(!newName)return ack?.({error:'Name is required'});
