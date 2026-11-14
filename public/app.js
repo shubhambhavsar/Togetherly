@@ -383,10 +383,14 @@ function displayTile(id,isLocal=false){
  video.setAttribute('playsinline','');video.setAttribute('autoplay','');
  const label=document.createElement('span');label.className='tile-label';label.textContent=isLocal?'You':(participants.find(x=>x.id===id)?.name||'Participant');
  tile.append(video,label);
- if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=()=>{
+ if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=event=>{
    if(callRole==='spectator'&&video.muted){
+    // First tap unlocks audio without minimizing the camera preview.
+    event.stopPropagation();
     video.muted=false;
-    video.play().then(()=>tileStatus(id,'')).catch(()=>{video.muted=true;toast('Audio is blocked by your browser. Try again.')});
+    video.play().then(()=>{
+     videoTiles.get(id)?.tile.querySelector('.tile-status')?.remove()
+    }).catch(()=>{video.muted=true;tileStatus(id,'Tap to hear audio')});
    }else video.play().catch(()=>{});
   }}
  videoTiles.set(id,{tile,video});$('callGrid').append(tile);$('callOverlay').classList.remove('hidden');return video
@@ -465,7 +469,9 @@ async function createPeer(id,initiator=false){
    const state=pc.connectionState;
    if(state==='connected'){
     pc._restartAttempts=0;
-    const label=videoTiles.get(id)?.tile.querySelector('.tile-status');if(label)label.remove();
+    const label=videoTiles.get(id)?.tile.querySelector('.tile-status');
+    if(callRole==='spectator'&&video?.muted)tileStatus(id,'Tap for audio');
+    else if(label)label.remove();
     $('callStatus').textContent='Connected';
    }else if(state==='failed'){
     tileStatus(id,iceConfig.relayAvailable?'Connection failed — retrying':'Connection failed — TURN relay needed');
