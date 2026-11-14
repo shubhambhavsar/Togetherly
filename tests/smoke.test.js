@@ -70,9 +70,13 @@ test('fullscreen preserves controls in the same canvas',()=>{
  assert.ok(html.includes('id="callOverlay"'));
  assert.ok(html.includes('id="chatBubble"'));
  const start=html.indexOf('id="videoShell"');
- const end=html.indexOf('id="fullscreenToggle"',start);
+ const end=html.indexOf('class="player-toolbar"',start);
  assert.ok(start>0&&end>start);
+ assert.ok(html.indexOf('id="callOverlay"',start)>start);
  assert.ok(html.indexOf('id="callOverlay"',start)<end);
+ assert.ok(html.indexOf('id="fullscreenToggle"',start)>start);
+ assert.ok(html.indexOf('id="fullscreenToggle"',start)<end);
+ assert.ok(html.indexOf('id="chatBubble"',start)>start);
  assert.ok(html.indexOf('id="chatBubble"',start)<end);
  assert.ok(frontend.includes("fs:0"));
  assert.ok(frontend.includes('theaterShell.requestFullscreen('));
@@ -83,12 +87,21 @@ test('fullscreen preserves controls in the same canvas',()=>{
  assert.ok(css.includes('.video-shell.pseudo-fullscreen'));
  assert.ok(css.includes('.video-shell.theater-mode #chatPanel.chat-open'));
 });
-test('video calls can be minimized and restored without ending the call',()=>{
- assert.ok(html.includes('id="callBubble"'),'Collapsed call bubble missing');
- assert.ok(html.includes('id="minimizeCall"'),'Minimize button missing');
- assert.ok(frontend.includes("callMinimized=true;syncCallDock()"),'Minimizing should preserve call state');
- assert.ok(frontend.includes("callMinimized=false;syncCallDock()"),'Restore action missing');
- assert.ok(frontend.includes("!callActive||!callMinimized"),'Bubble should show only for minimized active calls');
+test('camera surface cycles compact, minimized, enlarged, then compact',()=>{
+ assert.ok(html.includes('id="callBubble"'),'Minimized camera bubble is required');
+ assert.ok(html.includes('id="callOverlay"'),'Interactive call surface is required');
+ assert.ok(html.includes('role="button" tabindex="0" aria-label="Minimize camera tiles"'),'Keyboard access must be preserved');
+ assert.ok(!html.includes('id="minimizeCall"'),'Redundant minimize button must be removed');
+ assert.ok(!html.includes('id="expandCall"'),'Redundant expand button must be removed');
+ assert.ok(frontend.includes("callViewMode=nextCallViewMode(callViewMode)"),'One-click state cycle must be used');
+ assert.ok(frontend.includes("$('callOverlay').onclick=()=>cycleCallView()"),'Clicking video tiles must cycle sizes');
+ assert.ok(frontend.includes("$('callBubble').onclick=()=>cycleCallView()"),'Clicking minimized bubble must enlarge');
+ const start=frontend.indexOf('function nextCallViewMode(mode){');
+ const end=frontend.indexOf('function cycleCallView(){',start);
+ assert.ok(start>=0&&end>start,'Pure call-view state transition missing');
+ const states=vm.runInNewContext(frontend.slice(start,end)+"\n[nextCallViewMode('compact'),nextCallViewMode('minimized'),nextCallViewMode('expanded')]"); 
+ assert.deepEqual(Array.from(states),['minimized','expanded','compact']);
+ assert.ok(!frontend.includes("socket.emit('call:leave')")||frontend.includes("async function leaveCall("),'Leave call should remain separate from preview resizing');
 });
 test('cinema stylesheet is loaded and group calling requests room-scoped ICE servers',()=>{
  assert.ok(html.includes('/bluehour.css?v=1'),'Blue Hour Cinema stylesheet not loaded');
@@ -191,4 +204,21 @@ test('TURN health response indicates configuration presence only',()=>{
  assert.ok(backend.includes('relayConfigured:Boolean('),'Health endpoint must report relay config presence');
  assert.ok(backend.includes('METERED_TURN_DOMAIN')&&backend.includes('METERED_TURN_API_KEY'));
  assert.ok(!backend.includes("res.json({ok:true,relayKey"),'Health response must not leak credentials');
+});
+
+test('theater dock groups Exit fullscreen and a real chat icon',()=>{
+ const css=fs.readFileSync(path.join(root,'public/cinema-dock.css'),'utf8');
+ for(const id of ['theaterDock','fullscreenToggle','chatBubble','toolbarChat','toolbarUnread'])
+  assert.ok(html.includes('id="'+id+'"'),'Missing dock control: '+id);
+ const dockStart=html.indexOf('id="theaterDock"');
+ const dockEnd=html.indexOf('id="fullscreenToggle"',dockStart);
+ const chatIndex=html.indexOf('id="chatBubble"',dockStart);
+ assert.ok(dockStart>0&&dockEnd>dockStart&&chatIndex>dockEnd,'Fullscreen and chat controls must share the dock');
+ assert.ok(!html.includes('☏ Chat'),'Phone-style glyph must not be used for chat');
+ assert.ok(html.includes('M20 11.5a8.5'),'Use a speech-bubble icon');
+ assert.ok(html.includes('/cinema-dock.css?v=1'),'Dock CSS must load after earlier styles');
+ assert.ok(css.includes('.theater-dock')&&css.includes('translateX(-50%)'),'Dock should center above playback controls');
+ assert.ok(css.includes('body:not(.theater-lock) #chatPanel.chat-open'),'Chat button must open a usable drawer outside fullscreen');
+ assert.ok(frontend.includes("$('toolbarChat').onclick=()=>toggleChat(!chatOpen)"),'Normal-mode chat must work');
+ assert.ok(frontend.includes("$('chatBubble').onclick=()=>toggleChat(!chatOpen)"),'Fullscreen chat must work');
 });

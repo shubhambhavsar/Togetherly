@@ -72,3 +72,11 @@ Changes in feature branches are not published until merged into `main`. Because 
 Your Render environment must contain both `METERED_TURN_DOMAIN` (the actual `your-app.metered.live` hostname) and `METERED_TURN_API_KEY` (the credential-scoped key). Configuring just the key is **not sufficient**.
 
 After deploying this release, the service's `/health` endpoint reports `relayConfigured: true` only when a complete static TURN pair or the two Metered settings are present. This reports configuration **presence**, not whether credentials are valid or whether relay candidates successfully connect. To validate actual relaying, join a watch room and test a call across two different networks while checking `/api/rtc` and WebRTC ICE candidates. Never share the key in chat, commit it to GitHub or expose the provider's account-wide secret.
+
+## Proposed UI improvement — cinema dock and tap-to-size cameras
+- In the normal watch room, **Chat** is alongside **Theater** and **Explore videos** below the player, instead of floating on top of the film.
+- In fullscreen/theater mode, **Exit fullscreen** and **Chat** share a compact, centered floating control dock above the YouTube player's own control bar. The chat uses a standard speech-bubble icon (not a telephone glyph).
+- The dock remains inside the fullscreen element; chat opens an accessible in-player panel that does not overlap the dock.
+- Video previews no longer show separate Minimize and Expand buttons. Tap the camera tile surface to cycle: **compact preview → minimized camera bubble → enlarged preview → compact preview**. A tap on the minimized bubble continues the cycle. A keyboard user can press Enter or Space on the tile surface.
+- Resizing camera tiles only changes their display. It does **not** mute, stop, or restart microphone/camera streams or interrupt the existing call.
+- These changes are intentionally prepared on a feature branch and require a separate approved merge to production.

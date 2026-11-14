@@ -8,7 +8,7 @@ const displayedChatIds=new Set(),unplayableVideos=new Set();
 try{for(const id of JSON.parse(sessionStorage.getItem('togetherly.unplayable')||'[]'))if(/^[\w-]{11}$/.test(id))unplayableVideos.add(id)}catch{}
 function markUnplayable(id){if(!id||!/^[\w-]{11}$/.test(id))return;unplayableVideos.add(id);try{sessionStorage.setItem('togetherly.unplayable',JSON.stringify([...unplayableVideos].slice(-50)))}catch{}}
 let localStream=null,callActive=false,callJoining=false,iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
-let callMembers=[],unread=0,chatOpen=false,callMinimized=false,callRole=null,sharingCall=false;
+let callMembers=[],unread=0,chatOpen=false,callMinimized=false,callViewMode='compact',callRole=null,sharingCall=false;
 const cameraMembers=()=>callMembers.filter(m=>m.role==='camera');
 const callUser=id=>callMembers.find(m=>m.id===id);
 const connections=new Map(),remoteStreams=new Map(),candidateQueues=new Map(),videoTiles=new Map();
@@ -58,8 +58,11 @@ function addMessage(m,notify=true){
  const content=document.createElement('span');content.textContent=m.text;
  line.append(who,content);$('chat').append(line);
  $('chat').scrollTop=$('chat').scrollHeight;
- if(notify&&!chatOpen&&matchMedia('(max-width:850px)').matches){
-  unread=Math.min(99,unread+1);$('unread').textContent=unread;$('unread').classList.remove('hidden')
+ if(notify&&!chatOpen&&(theaterActive()||matchMedia('(max-width:850px)').matches)){
+  unread=Math.min(99,unread+1);
+  for(const id of ['unread','toolbarUnread']){
+    $(id).textContent=String(unread);$(id).classList.remove('hidden')
+  }
  }
 }
 socket.on('chat:new',m=>addMessage(m));
@@ -203,8 +206,23 @@ $('chatForm').onsubmit=e=>{
   chatFeedback('Sent ✓');$('chatText').focus();
  })
 };
-function toggleChat(show){chatOpen=show;$('chatPanel').classList.toggle('chat-open',show);if(show){unread=0;$('unread').classList.add('hidden');setTimeout(()=>$('chatText').focus(),50)}}
-$('chatBubble').onclick=()=>toggleChat(!chatOpen);$('closeChat').onclick=()=>toggleChat(false);
+function toggleChat(show){
+ chatOpen=Boolean(show);
+ $('chatPanel').classList.toggle('chat-open',chatOpen);
+ for(const id of ['chatBubble','toolbarChat']){
+  $(id).setAttribute('aria-expanded',String(chatOpen));
+  $(id).setAttribute('aria-label',chatOpen?'Close chat':'Open chat');
+ }
+ if(chatOpen){
+  unread=0;
+  $('unread').classList.add('hidden');
+  $('toolbarUnread').classList.add('hidden');
+  setTimeout(()=>$('chatText').focus(),50)
+ }
+}
+$('chatBubble').onclick=()=>toggleChat(!chatOpen);
+$('toolbarChat').onclick=()=>toggleChat(!chatOpen);
+$('closeChat').onclick=()=>toggleChat(false);
 document.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(chatOpen){toggleChat(false);return}
@@ -373,14 +391,30 @@ function updateCallActions(){
   :'Two people can use cameras. Everyone else can watch the movie and chat.';
 }
 function syncCallDock(){
+ callMinimized=callViewMode==='minimized';
+ const enlarged=callViewMode==='expanded';
  $('callBubbleCount').textContent=String(cameraMembers().length||1);
  $('callBubble').classList.toggle('hidden',!callActive||!callMinimized);
  $('callOverlay').classList.toggle('collapsed',callActive&&callMinimized);
- $('minimizeCall').disabled=!callActive;
+ $('callOverlay').classList.toggle('expanded',callActive&&enlarged);
+ const nextAction=callViewMode==='compact'?'Minimize':callViewMode==='minimized'?'Enlarge':'Resize';
+ $('callOverlay').setAttribute('aria-label',nextAction+' camera tiles');
+ $('callOverlay').title='Tap to '+nextAction.toLowerCase()+' camera tiles';
+ $('callBubble').setAttribute('aria-label','Enlarge camera tiles');
+}
+function nextCallViewMode(mode){
+ if(mode==='compact')return 'minimized';
+ if(mode==='minimized')return 'expanded';
+ return 'compact';
+}
+function cycleCallView(){
+ if(!callActive)return;
+ callViewMode=nextCallViewMode(callViewMode);
+ syncCallDock()
 }
 function setCallUI(active){
  $('callOverlay').classList.toggle('hidden',!active);
- if(!active){callMinimized=false;callRole=null;sharingCall=false}
+ if(!active){callMinimized=false;callViewMode='compact';callRole=null;sharingCall=false}
  $('mic').textContent='Mute microphone';
  $('camera').textContent='Turn camera off';
  $('callStatus').textContent=active?(callRole==='spectator'?'Watching shared cameras':'On camera'):'No one on camera yet';
@@ -490,9 +524,14 @@ $('shareCall').onclick=()=>{
 $('hangup').onclick=()=>leaveCall(true);
 $('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
 $('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
-$('expandCall').onclick=()=>{$('callOverlay').classList.toggle('expanded');$('expandCall').textContent=$('callOverlay').classList.contains('expanded')?'⤡':'⤢'};
-$('minimizeCall').onclick=()=>{if(!callActive)return;callMinimized=true;syncCallDock()};
-$('callBubble').onclick=()=>{if(!callActive)return;callMinimized=false;syncCallDock()};
+// Tapping any camera tile cycles compact → minimized bubble → enlarged → compact.
+// The media stream stays active: changing the preview size never mutes or ends the call.
+$('callOverlay').onclick=()=>cycleCallView();
+$('callOverlay').onkeydown=e=>{
+ if(e.target!==$('callOverlay'))return;
+ if(e.key==='Enter'||e.key===' '){e.preventDefault();cycleCallView()}
+};
+$('callBubble').onclick=()=>cycleCallView();
 
 socket.on('call:peer-joined',d=>{if(callActive&&d.id!==me&&d.role==='camera')toast((participants.find(p=>p.id===d.id)?.name||'Someone')+' joined on camera')});
 socket.on('call:publisher-available',async d=>{if(callActive&&callRole==='spectator'&&!connections.has(d.id)){
