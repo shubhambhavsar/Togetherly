@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/bluehour.css?v=1">
 <link rel="stylesheet" href="/layout-fixes.css?v=2">
 <link rel="stylesheet" href="/simplify.css?v=1"><link rel="stylesheet" href="/cinema-dock.css?v=1">
-<link rel="stylesheet" href="/compact-mobile-dock.css?v=1">
+<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1">
 </head>
 <body>
 <header class="site-header">
@@ -115,11 +115,11 @@
       <section class="rail-section people-section">
         <div class="section-title-row"><h2>In this room</h2><span id="roomSeats" class="subtle-count">2 camera seats</span></div>
         <div id="members" class="members"></div>
-        <div id="callStatus" class="call-status">No one on camera yet</div>
+        <div id="callStatus" class="call-status">Live cameras appear here automatically</div>
         <div class="callcontrols">
           <div id="callEntry" class="call-entry">
-            <button id="call" class="primary-button small">Join on camera</button>
-            <button id="watchCall" class="secondary-button small hidden">Watch the call</button>
+            <button id="call" class="primary-button small" title="Your camera and microphone will be available to everyone in this private room">Join on camera</button>
+            
           </div>
           <div id="callActiveControls" class="call-active-controls hidden">
             <div id="cameraButtons" class="camera-buttons">
@@ -127,10 +127,10 @@
               <button id="camera" class="secondary-button small">Turn camera off</button>
             </div>
             <button id="hangup" class="secondary-button small">Leave call</button>
-            <button id="shareCall" class="secondary-button small hidden" title="Let other room participants watch and hear your camera">Allow spectators to view</button>
+            
           </div>
         </div>
-        <p id="callNote" class="privacy-note">Two camera seats. Other friends can watch the movie and chat.</p>
+        <p id="callNote" class="privacy-note">Joining on camera makes your video and audio available to everyone with this room link. Guests can watch without enabling their own camera.</p>
       </section>
       <section class="rail-section conversation-section" id="chatPanel">
         <div class="section-title-row"><h2>Conversation</h2><span class="chat-connection" id="chatConnection">Connecting…</span><button id="closeChat" class="text-button" aria-label="Close chat">Close ✕</button></div>
@@ -172,6 +172,6 @@
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=9"></script>
+<script src="/app.js?v=10"></script>
 </body>
 </html>
