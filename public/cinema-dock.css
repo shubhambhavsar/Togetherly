@@ -1,0 +1,121 @@
+/* Togetherly: unobtrusive cinema controls, clear chat icon, and one-touch call sizing. */
+#videoShell .theater-dock{display:none!important}
+#videoShell.theater-mode .theater-dock{
+ display:flex!important;position:absolute!important;left:50%!important;
+ bottom:max(85px,calc(env(safe-area-inset-bottom) + 78px))!important;
+ transform:translateX(-50%);z-index:70!important;align-items:center;justify-content:center;
+ padding:6px;gap:2px;border-radius:99px;background:rgba(13,25,39,.91);
+ border:1px solid rgba(185,213,231,.38);box-shadow:0 8px 38px #0009;
+ backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);white-space:nowrap;
+ max-width:calc(100% - 22px);
+}
+#videoShell.theater-mode #fullscreenToggle,
+#videoShell.theater-mode #chatBubble{
+ display:inline-flex!important;position:static!important;inset:auto!important;
+ margin:0!important;padding:10px 15px!important;min-height:42px!important;
+ align-items:center!important;justify-content:center!important;gap:9px!important;
+ background:transparent!important;border:0!important;border-radius:99px!important;
+ box-shadow:none!important;color:#F4F1EB!important;
+ font-size:12px!important;font-weight:650!important;white-space:nowrap;
+ transform:none!important;
+}
+#videoShell.theater-mode #fullscreenToggle:hover,
+#videoShell.theater-mode #chatBubble:hover{background:rgba(168,199,216,.16)!important}
+#videoShell.theater-mode #fullscreenToggle:focus-visible,
+#videoShell.theater-mode #chatBubble:focus-visible{
+ outline:2px solid #E9BB89!important;outline-offset:1px!important
+}
+.theater-dock svg,.toolbar-actions svg{flex:none;display:inline-block;vertical-align:middle}
+#videoShell .theater-dock-divider{
+ width:1px;height:24px;background:#7894aa66;flex:none;margin:0 3px;
+}
+#videoShell.theater-mode .call-overlay{
+ top:max(12px,env(safe-area-inset-top))!important;
+ right:max(12px,env(safe-area-inset-right))!important;
+ width:min(30%,270px)!important;max-height:65%!important;
+ cursor:pointer!important;pointer-events:auto!important;z-index:25!important;
+ border:1px solid rgba(168,199,216,.38);
+ border-radius:11px;overflow:hidden!important;background:rgba(8,18,28,.5);
+ padding:4px;transition:width .18s ease;
+}
+#videoShell:not(.theater-mode) .call-overlay{
+ top:10px!important;right:10px!important;width:min(30%,240px)!important;
+ max-height:66%!important;overflow:hidden!important;
+ cursor:pointer!important;pointer-events:auto!important;
+ border:1px solid rgba(168,199,216,.34);padding:4px;border-radius:11px;
+ background:rgba(8,18,28,.55);
+ transition:width .18s ease;
+}
+#videoShell .call-overlay.expanded{width:min(58%,460px)!important}
+#videoShell .call-overlay .call-grid{pointer-events:auto!important;max-height:100%!important}
+#videoShell .call-overlay .call-tile{pointer-events:auto!important}
+#videoShell .call-overlay:focus-visible{outline:2px solid #E9BB89!important;outline-offset:3px}
+#videoShell .call-overlay:hover::after,#videoShell .call-overlay:focus-visible::after{
+ content:'Tap to resize';display:block;color:#e5f1f7;background:#091728db;
+ font-size:10px;letter-spacing:.12px;padding:4px 8px;border-radius:0 0 7px 7px;
+ text-align:center;pointer-events:none;
+}
+#videoShell .call-overlay.collapsed{display:none!important}
+#videoShell .call-bubble{
+ display:inline-flex;align-items:center;gap:7px;padding:11px 14px!important;
+ top:max(10px,env(safe-area-inset-top))!important;
+ right:max(10px,env(safe-area-inset-right))!important;
+ border-radius:99px;background:rgba(20,42,61,.94)!important;
+ border:1px solid #a8c7d899!important;color:#eaf4f7!important;
+ min-height:42px;
+}
+#videoShell .call-bubble.hidden{display:none!important}
+#videoShell .call-bubble svg{flex:none}
+.toolbar-actions #toolbarChat{display:inline-flex;align-items:center;gap:6px}
+.toolbar-actions #toolbarChat svg{color:#A8C7D8}
+.toolbar-actions #toolbarChat .unread{margin-left:0}
+body:not(.theater-lock) #chatPanel.chat-open{
+ display:flex!important;position:fixed!important;
+ top:auto!important;bottom:max(18px,env(safe-area-inset-bottom))!important;
+ right:18px!important;left:auto!important;
+ width:min(390px,calc(100vw - 28px))!important;
+ height:min(560px,calc(100dvh - 36px))!important;
+ max-height:none!important;flex-direction:column!important;
+ padding:22px!important;background:#16283b!important;
+ border:1px solid #57738c!important;border-radius:17px!important;
+ box-shadow:0 18px 68px #010610c9!important;z-index:1450!important;
+}
+body:not(.theater-lock) #chatPanel.chat-open #closeChat{display:inline!important}
+body:not(.theater-lock) #chatPanel.chat-open .chat{
+ flex:1!important;min-height:0!important;height:auto!important;overflow-y:auto!important;
+}
+#videoShell.theater-mode #chatPanel.chat-open{
+ bottom:max(160px,calc(env(safe-area-inset-bottom) + 156px))!important;
+ right:max(12px,env(safe-area-inset-right))!important;
+ max-height:min(58dvh,430px)!important;
+ z-index:80!important;
+}
+#videoShell.theater-mode #chatPanel.chat-open #closeChat{display:inline!important}
+@media(max-width:980px){
+ .player-toolbar .toolbar-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+ .toolbar-actions #toolbarChat{min-height:42px}
+}
+@media(max-width:600px){
+ #videoShell.theater-mode .theater-dock{
+  bottom:max(100px,calc(env(safe-area-inset-bottom) + 88px))!important;
+  padding:4px;gap:0;
+ }
+ #videoShell.theater-mode #fullscreenToggle,
+ #videoShell.theater-mode #chatBubble{
+  padding:10px 12px!important;min-height:44px!important;font-size:11px!important;gap:7px!important
+ }
+ #videoShell .call-overlay:not(.expanded){width:min(41%,172px)!important}
+ #videoShell .call-overlay.expanded{width:min(73%,300px)!important}
+ #videoShell.theater-mode #callOverlay{top:max(9px,env(safe-area-inset-top))!important}
+ #videoShell.theater-mode #chatPanel.chat-open{
+  bottom:max(163px,calc(env(safe-area-inset-bottom) + 154px))!important;
+  right:9px!important;left:9px!important;width:auto!important;
+  max-height:min(52dvh,350px)!important;
+ }
+ .player-toolbar .toolbar-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+ .player-toolbar .toolbar-actions #toolbarChat{grid-column:1;grid-row:2}
+ .player-toolbar .toolbar-actions #openExplore{grid-column:2;grid-row:1/span 2;white-space:normal}
+ .player-toolbar .toolbar-actions #toolbarFullscreen{grid-column:1;grid-row:1}
+ .player-toolbar .toolbar-actions button{min-width:0;width:100%}
+}
+@media(prefers-reduced-motion:reduce){#videoShell .call-overlay{transition:none!important}}
