@@ -61,3 +61,14 @@ Replace `your-app` and the sample key with values from your own Metered dashboar
 
 ## Release safety
 Changes in feature branches are not published until merged into `main`. Because Render deploys `main` automatically, merging constitutes deployment.
+
+## Simplified controls and returning to rooms (proposed release)
+- Use the native YouTube player to play, pause, and seek. The separate duplicate play/pause/resync buttons are removed; the in-room playback state continues to synchronize automatically on YouTube player events and through periodic sync messages.
+- Your saved display name allows automatic room re-entry after refreshing a valid invite link. If the browser has no saved name, it still asks you to enter one. For privacy, camera/mic is **never** restarted automatically after a refresh.
+- Call controls are contextual: before joining, you see **Join on camera** (or **Watch the call** when a camera call exists); after joining on camera, you see **Mute microphone**, **Turn camera off**, and **Hang up**. Spectator sharing remains opt-in and is offered only when spectators are in the call.
+- Shared queue titles preserve ordinary characters (including `f` and `x`), decode common HTML character references, and show a thumbnail and two-line title.
+
+## Verifying TURN setup without exposing credentials
+Your Render environment must contain both `METERED_TURN_DOMAIN` (the actual `your-app.metered.live` hostname) and `METERED_TURN_API_KEY` (the credential-scoped key). Configuring just the key is **not sufficient**.
+
+After deploying this release, the service's `/health` endpoint reports `relayConfigured: true` only when a complete static TURN pair or the two Metered settings are present. This reports configuration **presence**, not whether credentials are valid or whether relay candidates successfully connect. To validate actual relaying, join a watch room and test a call across two different networks while checking `/api/rtc` and WebRTC ICE candidates. Never share the key in chat, commit it to GitHub or expose the provider's account-wide secret.
