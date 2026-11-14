@@ -202,17 +202,35 @@ s.on('message',sendChat);
 s.on('call:join',(data,ack)=>{
  const r=roomOf(s);if(typeof ack!=='function')return;
  if(!r)return ack({error:'Join the room first'});
- if(r.callUsers.has(s.id))return ack({error:'Already in a call'});
- const role=data?.role==='spectator'?'spectator':'camera';
+ const role=data?.role==='camera'?'camera':'spectator';
+ const previous=r.callUsers.get(s.id);
+ if(previous?.role==='camera')return ack({error:'Already on camera'});
  const cameras=[...r.callUsers].filter(([,meta])=>meta.role==='camera');
- if(role==='camera'&&cameras.length>=MAX_CAMERA_PARTICIPANTS)return ack({error:'Both camera seats are in use. Choose Watch call instead.',code:'CAMERAS_FULL'});
+ // Harmless repeat subscriptions can happen when a mobile network reconnects.
+ if(previous?.role==='spectator'&&role==='spectator'){
+  return ack({role,peers:cameras.filter(([,meta])=>meta.sharing).map(([id])=>id),callMembers:callMembers(r)});
+ }
+ if(role==='camera'&&cameras.length>=MAX_CAMERA_PARTICIPANTS)return ack({error:'Both camera seats are in use',code:'CAMERAS_FULL'});
  const peers=role==='camera'
- ? cameras.map(([id])=>id)
- : cameras.filter(([,meta])=>meta.sharing).map(([id])=>id);
- r.callUsers.set(s.id,{role,sharing:false});
+ ?cameras.map(([id])=>id)
+ :cameras.filter(([,meta])=>meta.sharing).map(([id])=>id);
+ // Converting an automatic spectator to a camera seat does not require another join.
+ if(previous?.role==='spectator'){
+  r.callUsers.delete(s.id);
+  s.to(r.id).emit('call:peer-left',{id:s.id});
+ }
+ // Camera publishing is explicitly requested by clicking "Join on camera —
+ // visible to everyone in this room". Passive spectators never publish media.
+ r.callUsers.set(s.id,{role,sharing:role==='camera'});
  ack({role,peers,callMembers:callMembers(r)});
  publishCall(r);
  s.to(r.id).emit('call:peer-joined',{id:s.id,role});
+ if(role==='camera'){
+  // Existing spectators are automatically invited to receive the new camera.
+  for(const [id,meta] of r.callUsers){
+   if(meta.role==='spectator')io.to(id).emit('call:publisher-available',{id:s.id});
+  }
+ }
 });
 s.on('call:share',(d,ack)=>{
  const r=roomOf(s),user=r?.callUsers.get(s.id);

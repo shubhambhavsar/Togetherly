@@ -20,7 +20,7 @@ function nickname(){return $('name').value.trim().slice(0,25)}
 function saveName(n){currentName=n;$('name').value=n;try{localStorage.setItem('togetherly.nickname',n)}catch{}}
 function requireName(){const n=nickname();if(!n){toast('Enter your name before joining');$('name').focus();return null}saveName(n);return n}
 $('rename').onclick=()=>{if(!room)return;const v=prompt('What name should others see?',currentName||nickname());if(v===null)return;const n=v.trim().slice(0,25);if(!n)return toast('Name cannot be empty');socket.emit('room:rename',{name:n},result=>{if(result?.ok){saveName(n);toast('Name updated')}else toast(result?.error||'Could not update name')})};
-function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();initPlayer()}
+function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();initPlayer();startSpectatorView()}
 function create(){const n=requireName();if(!n)return;socket.emit('create',{name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFromPath||room,name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
@@ -36,7 +36,7 @@ function showMembers(){
   avatar.className='avatar';avatar.textContent=m.name.charAt(0).toUpperCase();
   label.append(avatar,document.createTextNode(m.name+(m.id===me?' (you)':'')));row.append(label);
   const role=callUser(m.id),badge=document.createElement('span');badge.className='pill';
-  badge.textContent=role?(role.role==='camera'?'On camera':'Watching call'):'Watching';
+  badge.textContent=role?.role==='camera'?'On camera':'Watching';
   row.append(badge);box.append(row)
  }
  updateCallActions();
@@ -44,10 +44,11 @@ function showMembers(){
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
 socket.on('call:members',members=>{
  callMembers=members;syncCallDock();showMembers();
- if(!callActive)$('callStatus').textContent=cameraMembers().length?'Camera call in progress':'No one on camera yet';
- else if(callRole==='spectator')$('callStatus').textContent='Watching the call';
- else $('callStatus').textContent='On camera';
- const mine=callUser(me);if(mine?.role==='camera'){sharingCall=!!mine.sharing;updateSharingUI()}
+ $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
+ // Recover if a new publisher joined while passive viewers were reconnecting.
+ if(callActive&&callRole==='spectator'){
+  offerAvailableCameras(members.filter(m=>m.role==='camera'&&m.sharing).map(m=>m.id))
+ }
 });
 function addMessage(m,notify=true){
  if(!m||typeof m.text!=='string')return;
@@ -206,6 +207,16 @@ $('chatForm').onsubmit=e=>{
   chatFeedback('Sent ✓');$('chatText').focus();
  })
 };
+function updateChatViewport(){
+ const vp=window.visualViewport;
+ const top=Math.max(0,Math.round(vp?.offsetTop||0));
+ const height=Math.max(110,Math.round(vp?.height||window.innerHeight));
+ const typing=chatOpen&&document.activeElement===$('chatText');
+ document.documentElement.style.setProperty('--chat-visible-top',top+'px');
+ document.documentElement.style.setProperty('--chat-visible-height',height+'px');
+ document.body.classList.toggle('chat-typing',typing);
+ theaterShell.classList.toggle('chat-typing',typing);
+}
 function toggleChat(show){
  chatOpen=Boolean(show);
  $('chatPanel').classList.toggle('chat-open',chatOpen);
@@ -217,12 +228,20 @@ function toggleChat(show){
   unread=0;
   $('unread').classList.add('hidden');
   $('toolbarUnread').classList.add('hidden');
-  setTimeout(()=>$('chatText').focus(),50)
- }
+  // On mobile, opening messages must not automatically summon the keyboard.
+  if(!theaterActive()&&!matchMedia('(max-width:860px)').matches)setTimeout(()=>$('chatText').focus(),50)
+ }else if(document.activeElement===$('chatText'))$('chatText').blur();
+ updateChatViewport()
 }
 $('chatBubble').onclick=()=>toggleChat(!chatOpen);
 $('toolbarChat').onclick=()=>toggleChat(!chatOpen);
 $('closeChat').onclick=()=>toggleChat(false);
+$('chatText').addEventListener('focus',updateChatViewport);
+$('chatText').addEventListener('blur',()=>{updateChatViewport();setTimeout(updateChatViewport,180)});
+window.visualViewport?.addEventListener('resize',updateChatViewport);
+window.visualViewport?.addEventListener('scroll',updateChatViewport);
+window.addEventListener('resize',updateChatViewport);
+window.addEventListener('orientationchange',()=>setTimeout(updateChatViewport,250));
 document.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(chatOpen){toggleChat(false);return}
@@ -253,6 +272,7 @@ function updateTheaterUI(){
   if(chatOpen)toggleChat(false);
   if(theaterChat.parentNode!==theaterHome)theaterAnchor.after(theaterChat);
  }
+ updateChatViewport();
 }
 async function toggleTheater(){
  if(theaterActive()){
@@ -337,7 +357,7 @@ socket.on('connect',()=>{
    if(d?.error){toast(d.error);notice('Could not rejoin room. Try opening the invitation link again.');return}
    lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];
    roomQueue=d.queue||[];renderQueue();showMembers();updateChatConnection();socket.emit('sync');
-   notice('Reconnected. Join the camera call again when ready.');
+   startSpectatorView();notice('Reconnected to your room.');
   });
  }else if(roomFromPath&&!autoJoinAttempted&&nickname()){
   // Room links are persistent and the nickname is saved locally. Never auto-start camera/mic.
@@ -363,7 +383,16 @@ function displayTile(id,isLocal=false){
  video.setAttribute('playsinline','');video.setAttribute('autoplay','');
  const label=document.createElement('span');label.className='tile-label';label.textContent=isLocal?'You':(participants.find(x=>x.id===id)?.name||'Participant');
  tile.append(video,label);
- if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=()=>{video.play().catch(()=>toast('Tap again to enable call audio'))}}
+ if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=event=>{
+   if(callRole==='spectator'&&video.muted){
+    // First tap unlocks audio without minimizing the camera preview.
+    event.stopPropagation();
+    video.muted=false;
+    video.play().then(()=>{
+     videoTiles.get(id)?.tile.querySelector('.tile-status')?.remove()
+    }).catch(()=>{video.muted=true;tileStatus(id,'Tap to hear audio')});
+   }else video.play().catch(()=>{});
+  }}
  videoTiles.set(id,{tile,video});$('callGrid').append(tile);$('callOverlay').classList.remove('hidden');return video
 }
 function tileStatus(id,msg){const node=videoTiles.get(id)?.tile.querySelector('.tile-status');if(node)node.textContent=msg}
@@ -373,22 +402,18 @@ function removePeer(id){
  videoTiles.get(id)?.tile.remove();videoTiles.delete(id);
 }
 function updateCallActions(){
- const cameras=cameraMembers().length,viewers=callMembers.filter(m=>m.role==='spectator').length;
- const active=callActive;
- $('callEntry').classList.toggle('hidden',active);
- $('callActiveControls').classList.toggle('hidden',!active);
- $('cameraButtons').classList.toggle('hidden',!active||callRole!=='camera');
- $('call').classList.toggle('hidden',active||cameras>=2);
- $('watchCall').classList.toggle('hidden',active||cameras===0);
- $('call').disabled=active||callJoining||cameras>=2;
- $('watchCall').disabled=active||callJoining||cameras===0;
- $('hangup').textContent=callRole==='spectator'?'Stop watching call':'Hang up';
- $('shareCall').classList.toggle('hidden',!active||callRole!=='camera'||viewers===0);
- $('callNote').textContent=active&&callRole==='spectator'
-  ?'You can see only the cameras their owners share. Your own camera and mic are off.'
-  :active&&callRole==='camera'&&viewers>0
-  ?'Other people are watching the movie. Sharing your camera with them is optional.'
-  :'Two people can use cameras. Everyone else can watch the movie and chat.';
+ const cameras=cameraMembers().length;
+ const onCamera=callActive&&callRole==='camera';
+ $('callEntry').classList.toggle('hidden',onCamera||cameras>=2);
+ $('callActiveControls').classList.toggle('hidden',!onCamera);
+ $('cameraButtons').classList.toggle('hidden',!onCamera);
+ $('call').classList.toggle('hidden',onCamera||cameras>=2);
+ $('call').disabled=callJoining||onCamera||cameras>=2;
+ $('call').textContent='Join on camera';
+ $('hangup').textContent='Leave camera';
+ $('callNote').textContent=onCamera
+  ?'Your camera and microphone are visible to people in this room. Leave camera to stop sharing.'
+  :'Your movie and chat are always available. Choosing Join on camera shares your video and audio with everyone in this private room.';
 }
 function syncCallDock(){
  callMinimized=callViewMode==='minimized';
@@ -413,12 +438,12 @@ function cycleCallView(){
  syncCallDock()
 }
 function setCallUI(active){
- $('callOverlay').classList.toggle('hidden',!active);
+ $('callOverlay').classList.toggle('hidden',!active||!videoTiles.size);
  if(!active){callMinimized=false;callViewMode='compact';callRole=null;sharingCall=false}
  $('mic').textContent='Mute microphone';
  $('camera').textContent='Turn camera off';
- $('callStatus').textContent=active?(callRole==='spectator'?'Watching shared cameras':'On camera'):'No one on camera yet';
- updateSharingUI();syncCallDock();showMembers()
+ $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
+ syncCallDock();showMembers()
 }
 async function leaveCall(send=true){
  if(send&&socket.connected&&callActive)socket.emit('call:leave');
@@ -434,17 +459,19 @@ async function createPeer(id,initiator=false){
  const pc=new RTCPeerConnection({iceServers:iceConfig.iceServers});connections.set(id,pc);
  const remote=new MediaStream();remoteStreams.set(id,remote);
  const showRemote=callRole==='spectator'||callUser(id)?.role==='camera';
- const video=showRemote?displayTile(id):null;if(video)video.srcObject=remote;
+ const video=showRemote?displayTile(id):null;if(video){video.srcObject=remote;if(callRole==='spectator')video.muted=true;}
  if(callRole==='camera'&&localStream)localStream.getTracks().forEach(track=>pc.addTrack(track,localStream));
  else{pc.addTransceiver('audio',{direction:'recvonly'});pc.addTransceiver('video',{direction:'recvonly'})}
- pc.ontrack=e=>{const stream=remoteStreams.get(id);if(!stream)return;const tracks=e.streams?.[0]?.getTracks()||[e.track];for(const track of tracks)if(!stream.getTracks().some(t=>t.id===track.id))stream.addTrack(track);if(video){video.srcObject=stream;video.play().catch(()=>tileStatus(id,'Tap to play audio'))}};
+ pc.ontrack=e=>{const stream=remoteStreams.get(id);if(!stream)return;const tracks=e.streams?.[0]?.getTracks()||[e.track];for(const track of tracks)if(!stream.getTracks().some(t=>t.id===track.id))stream.addTrack(track);if(video){video.srcObject=stream;video.play().catch(()=>tileStatus(id,'Tap to hear audio'))}};
  pc.onicecandidate=e=>{if(e.candidate&&socket.connected)socket.emit('call:signal',{to:id,data:{candidate:e.candidate.toJSON()}})};
  pc.onconnectionstatechange=()=>{
    if(connections.get(id)!==pc)return;
    const state=pc.connectionState;
    if(state==='connected'){
     pc._restartAttempts=0;
-    const label=videoTiles.get(id)?.tile.querySelector('.tile-status');if(label)label.remove();
+    const label=videoTiles.get(id)?.tile.querySelector('.tile-status');
+    if(callRole==='spectator'&&video?.muted)tileStatus(id,'Tap for audio');
+    else if(label)label.remove();
     $('callStatus').textContent='Connected';
    }else if(state==='failed'){
     tileStatus(id,iceConfig.relayAvailable?'Connection failed — retrying':'Connection failed — TURN relay needed');
@@ -483,45 +510,66 @@ async function onSignal({from,data}){
   }
  }catch(e){console.error('Call signaling failed',e);tileStatus(from,'Connection error');toast('Call signaling error. Try leaving and rejoining.')}
 }
-function updateSharingUI(){
- $('shareCall').textContent=sharingCall?'✓ Guests can see/hear me':'Allow guests to see/hear my camera';
- $('shareCall').setAttribute('aria-pressed',String(sharingCall))
-}
-async function joinCall(role='camera'){
- if(callActive||callJoining||!room)return;
- if(role==='camera'&&cameraMembers().length>=2){toast('Both camera seats are taken. Choose Watch the call instead.');return}
- callJoining=true;$('call').disabled=true;$('watchCall').disabled=true;
- $('callStatus').textContent=role==='camera'?'Requesting camera permission…':'Joining as spectator…';
+async function loadIceServers(){
  try{
-  if(role==='camera')await getMedia();
-  try{
-   const params=new URLSearchParams({room,sid:socket.id||''});
-   const response=await fetch('/api/rtc?'+params.toString(),{cache:'no-store'});
-   if(response.ok){const config=await response.json();if(Array.isArray(config.iceServers))iceConfig=config}
-  }catch(e){console.warn('RTC configuration unavailable:',e)}
-  socket.timeout(10000).emit('call:join',{role},async(err,result)=>{
-   if(err||result?.error){toast(result?.error||'Unable to join the call');leaveCall(false);return}
-   callRole=result.role;callActive=true;callJoining=false;sharingCall=false;
-   callMembers=result.callMembers||callMembers;
-   if(callRole==='camera')displayTile('self',true).srcObject=localStream;
-   setCallUI(true);
-   if(callRole==='spectator')$('callNote').textContent='Guests see live cameras only when their owners approve. Your own camera and mic remain off.';
-   try{for(const id of result.peers||[])await createPeer(id,true)}catch(e){console.warn('Participant connection failed:',e);toast('Some cameras may not connect on this network.')}
-  })
- }catch(e){toast(e.message||'Camera and microphone permission denied');leaveCall(false)}
+  const params=new URLSearchParams({room,sid:socket.id||''});
+  const response=await fetch('/api/rtc?'+params.toString(),{cache:'no-store'});
+  if(!response.ok)return;
+  const config=await response.json();
+  if(Array.isArray(config.iceServers))iceConfig=config
+ }catch(error){console.warn('RTC configuration unavailable:',error)}
 }
-$('call').onclick=()=>joinCall('camera');
-$('watchCall').onclick=()=>joinCall('spectator');
-$('shareCall').onclick=()=>{
- if(!callActive||callRole!=='camera')return;
- const enabled=!sharingCall;
- socket.emit('call:share',{enabled},ack=>{
-  if(ack?.error)return toast(ack.error);
-  sharingCall=ack?.sharing===true;updateSharingUI();
-  toast(sharingCall?'Guests can see and hear you':'Your camera is private to the other caller')
- });
-};
-$('hangup').onclick=()=>leaveCall(true);
+function offerAvailableCameras(ids){
+ for(const id of ids||[]){
+  if(!connections.has(id))createPeer(id,true).catch(error=>console.warn('Camera subscription failed',error))
+ }
+}
+// All room members are receive-only subscribers by default. No media permissions.
+async function startSpectatorView(){
+ if(!room||!socket.connected||callActive||callJoining)return;
+ callJoining=true;updateCallActions();
+ try{
+  await loadIceServers();
+  if(!room||!socket.connected){callJoining=false;updateCallActions();return}
+  socket.timeout(10000).emit('call:join',{role:'spectator'},(err,result)=>{
+   callJoining=false;
+   if(err||result?.error){console.warn('Room camera viewing unavailable:',result?.error||err);updateCallActions();return}
+   callRole='spectator';callActive=true;callMembers=result.callMembers||callMembers;
+   setCallUI(true);offerAvailableCameras(result.peers)
+  })
+ }catch(error){callJoining=false;updateCallActions();console.warn('Passive viewer could not start:',error)}
+}
+// Camera joining is an explicit choice; the room can see and hear the camera owner.
+async function joinCall(){
+ if(callJoining||!room||callRole==='camera')return;
+ if(cameraMembers().length>=2)return toast('Both camera seats are currently occupied');
+ callJoining=true;updateCallActions();
+ $('callStatus').textContent='Requesting camera permission…';
+ try{
+  await getMedia();
+  await loadIceServers();
+  if(!socket.connected)throw Error('Connection lost; please reconnect to your room');
+  socket.timeout(10000).emit('call:join',{role:'camera'},(err,result)=>{
+   callJoining=false;
+   if(err||result?.error){
+    localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+    toast(result?.error||'Could not join on camera');updateCallActions();return
+   }
+   // Existing passive connections are no longer valid after role promotion.
+   [...connections.keys()].forEach(removePeer);
+   callRole='camera';callActive=true;sharingCall=true;
+   callMembers=result.callMembers||callMembers;
+   displayTile('self',true).srcObject=localStream;
+   setCallUI(true);offerAvailableCameras(result.peers)
+  })
+ }catch(error){
+  callJoining=false;
+  localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+  updateCallActions();toast(error.message||'Could not access your camera')
+ }
+}
+$('call').onclick=joinCall;
+$('hangup').onclick=()=>{leaveCall(true);startSpectatorView()};
 $('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
 $('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
 // Tapping any camera tile cycles compact → minimized bubble → enlarged → compact.

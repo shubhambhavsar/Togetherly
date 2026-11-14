@@ -6,8 +6,8 @@ A minimal shared YouTube watch room at https://everydaygrove.ca. One invitation 
 - Create a room and invite friends (no accounts required).
 - Up to **8 people per room**, with only **2 camera seats**.
 - Other participants can watch the synced YouTube player and chat independently of video-call connectivity.
-- Spectators can opt into receiving the call without granting camera/microphone permissions.
-- Each camera participant must explicitly select **Allow guests to see/hear my camera** before spectators may receive their video/audio. The other camera participant stays private unless they also opt in.
+- Spectators automatically subscribe to room cameras without granting camera/microphone permissions. A passive viewer never publishes video or audio.
+- Choosing **Join on camera** explicitly makes that participant's video and audio available to everyone with the private room link. The UI discloses this before joining. Camera seats remain limited to two.
 - Minimize camera tiles to a compact bubble, or keep them on screen in Togetherly theater/fullscreen mode.
 - In-room watch queue, recently watched videos on this device, one-tap clipboard paste, and optional embedded YouTube search.
 - Design palette: Midnight Navy #0B1420, Deep Slate #172433, Misty Blue #A8C7D8, Warm Ivory #F4F1EB, Soft Amber #E9BB89.
@@ -31,10 +31,10 @@ Searches use the official API with embeddable-video filtering, a per-user limit 
 
 Without the key, users can browse their recently watched videos, play the shared queue, open YouTube to discover something, copy its link and use **Paste** on Togetherly. Full search is **not available** until an API key is configured.
 
-## Calls without TURN
-Two-person calls already work on the tested networks; the app remains peer-to-peer (STUN) and does **not** require TURN credentials. Watching someone else's video call is still a real WebRTC connection; spectators on certain mobile networks may not be able to receive the camera feeds. If that happens, they can continue the shared movie and chat. For reliable spectator media and larger groups, a managed SFU (e.g. LiveKit) would be a future integration.
+## Camera calling and TURN
+Togetherly uses peer-to-peer WebRTC with STUN, plus optional Metered TURN when valid credentials are configured. Watching a shared camera still requires a media connection for each spectator. Without working TURN, viewers on some mobile networks may not receive the camera feeds; the movie and chat continue independently. For reliable larger groups, a managed SFU would be a future integration.
 
-A camera's consent to spectators is **off by default**. A public invitation link only grants entry to that room. It does not enable camera feeds or recording. The app currently has no call recording feature.
+Camera publishing is **off until a person deliberately clicks Join on camera**. Once enabled, the feed is room-visible, including for spectators. The app currently has no call recording feature.
 
 ## Limitations / next steps
 - Fullscreen uses Togetherly theater mode, not YouTube's native fullscreen, to preserve overlays. Safari may use a screen-filling fallback.
@@ -65,7 +65,7 @@ Changes in feature branches are not published until merged into `main`. Because 
 ## Simplified controls and returning to rooms (proposed release)
 - Use the native YouTube player to play, pause, and seek. The separate duplicate play/pause/resync buttons are removed; the in-room playback state continues to synchronize automatically on YouTube player events and through periodic sync messages.
 - Your saved display name allows automatic room re-entry after refreshing a valid invite link. If the browser has no saved name, it still asks you to enter one. For privacy, camera/mic is **never** restarted automatically after a refresh.
-- Call controls are contextual: before joining, you see **Join on camera** (or **Watch the call** when a camera call exists); after joining on camera, you see **Mute microphone**, **Turn camera off**, and **Hang up**. Spectator sharing remains opt-in and is offered only when spectators are in the call.
+- Call controls are contextual: everyone sees room cameras automatically without a Watch call button; clicking **Join on camera** deliberately publishes video and audio to everyone in the private room. On-camera participants get **Mute microphone**, **Turn camera off**, and **Leave camera** controls.
 - Shared queue titles preserve ordinary characters (including `f` and `x`), decode common HTML character references, and show a thumbnail and two-line title.
 
 ## Verifying TURN setup without exposing credentials
@@ -75,7 +75,7 @@ After deploying this release, the service's `/health` endpoint reports `relayCon
 
 ## Proposed UI improvement — cinema dock and tap-to-size cameras
 - In the normal watch room, **Chat** is alongside **Theater** and **Explore videos** below the player, instead of floating on top of the film.
-- In fullscreen/theater mode, **Exit fullscreen** and **Chat** share a compact, centered floating control dock above the YouTube player's own control bar. The chat uses a standard speech-bubble icon (not a telephone glyph).
+- In fullscreen/theater mode, **Exit fullscreen** and **Chat** share a compact dock; on phones the dock is a slim right-edge vertical rail. The chat uses a standard speech-bubble icon (not a telephone glyph).
 - The dock remains inside the fullscreen element; chat opens an accessible in-player panel that does not overlap the dock.
 - Video previews no longer show separate Minimize and Expand buttons. Tap the camera tile surface to cycle: **compact preview → minimized camera bubble → enlarged preview → compact preview**. A tap on the minimized bubble continues the cycle. A keyboard user can press Enter or Space on the tile surface.
 - Resizing camera tiles only changes their display. It does **not** mute, stop, or restart microphone/camera streams or interrupt the existing call.
@@ -83,3 +83,11 @@ After deploying this release, the service's `/health` endpoint reports `relayCon
 
 ## Pending mobile fullscreen compact-controls refinement
 On phone-sized screens, including touch devices in landscape orientation, fullscreen's wide **Exit fullscreen / Chat** pill becomes a narrow **right-edge vertical rail** with two 44 × 44 px icon-only buttons, approximately halfway down the screen. The rail stays away from the top-right camera tile area and center of the movie. The chat drawer opens to the left of the rail so the controls remain accessible. Accessible labels and unread-message counts remain available. Desktop retains the labeled controls. This is a stylesheet and markup refinement only; it does not change signaling, video, TURN, or chat delivery logic. Merge only after the user approves deployment.
+
+## Pending: automatic spectator cameras and keyboard-safe mobile chat
+- Everyone who opens a room subscribes *receive-only* to active camera seats automatically, without a separate Watch call action and without invoking camera/microphone permissions.
+- A person actively choosing **Join on camera** is told that their video/audio is available to other participants with the room link. Camera publishing is never automatic, even after refresh or reconnect.
+- Spectator camera video defaults to muted autoplay on mobile to avoid blocking display; tapping a tile can enable audio where the browser permits it. Camera display is best-effort when WebRTC cannot connect.
+- Chat in fullscreen uses the browser's `visualViewport` height and top offset while the message field is focused. The message list scrolls inside a sized panel, and the composer stays above the software keyboard whenever the browser reports the visible viewport correctly.
+- Opening chat on mobile does not automatically focus the text field and summon the keyboard. The user explicitly taps the input to type.
+- Review branch only until the user explicitly approves with `deploy` (Render publishes `main` automatically).
