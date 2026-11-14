@@ -181,7 +181,7 @@ test('watch interface relies on YouTube controls and shows contextual call actio
  assert.ok(html.includes('/simplify.css?v=1'),'Updated UI layout stylesheet missing');
 });
 test('friendly queue titles decode entities while preserving source content',()=>{
- assert.ok(backend.includes(String.raw`/\\u0000-\\u001f<>/` )||backend.includes(String.raw`/[\\u0000-\\u001f<>]/`),'Title sanitizer should only strip control characters');
+ assert.ok(backend.includes(String.raw`/[\u0000-\u001f<>]/g`),'Title sanitizer should only strip control characters');
  assert.ok(frontend.includes('function humanTitle('),'Missing title entity decoder');
  assert.ok(frontend.includes("title.textContent=humanTitle(item.title)"),'Queue labels should use decoded titles');
  assert.ok(frontend.includes("title.title=title.textContent"),'Full queue title should be available on hover');
