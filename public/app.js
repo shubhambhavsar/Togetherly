@@ -203,6 +203,16 @@ $('chatForm').onsubmit=e=>{
   chatFeedback('Sent ✓');$('chatText').focus();
  })
 };
+function updateChatViewport(){
+ const vp=window.visualViewport;
+ const top=Math.max(0,Math.round(vp?.offsetTop||0));
+ const height=Math.max(110,Math.round(vp?.height||window.innerHeight));
+ const typing=chatOpen&&document.activeElement===$('chatText');
+ document.documentElement.style.setProperty('--chat-visible-top',top+'px');
+ document.documentElement.style.setProperty('--chat-visible-height',height+'px');
+ document.body.classList.toggle('chat-typing',typing);
+ theaterShell.classList.toggle('chat-typing',typing);
+}
 function toggleChat(show){
  chatOpen=Boolean(show);
  $('chatPanel').classList.toggle('chat-open',chatOpen);
@@ -214,12 +224,20 @@ function toggleChat(show){
   unread=0;
   $('unread').classList.add('hidden');
   $('toolbarUnread').classList.add('hidden');
-  setTimeout(()=>$('chatText').focus(),50)
- }
+  // On mobile, opening messages must not automatically summon the keyboard.
+  if(!theaterActive()&&!matchMedia('(max-width:860px)').matches)setTimeout(()=>$('chatText').focus(),50)
+ }else if(document.activeElement===$('chatText'))$('chatText').blur();
+ updateChatViewport()
 }
 $('chatBubble').onclick=()=>toggleChat(!chatOpen);
 $('toolbarChat').onclick=()=>toggleChat(!chatOpen);
 $('closeChat').onclick=()=>toggleChat(false);
+$('chatText').addEventListener('focus',updateChatViewport);
+$('chatText').addEventListener('blur',()=>{updateChatViewport();setTimeout(updateChatViewport,180)});
+window.visualViewport?.addEventListener('resize',updateChatViewport);
+window.visualViewport?.addEventListener('scroll',updateChatViewport);
+window.addEventListener('resize',updateChatViewport);
+window.addEventListener('orientationchange',()=>setTimeout(updateChatViewport,250));
 document.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(chatOpen){toggleChat(false);return}
@@ -250,6 +268,7 @@ function updateTheaterUI(){
   if(chatOpen)toggleChat(false);
   if(theaterChat.parentNode!==theaterHome)theaterAnchor.after(theaterChat);
  }
+ updateChatViewport();
 }
 async function toggleTheater(){
  if(theaterActive()){
