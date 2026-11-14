@@ -7,7 +7,7 @@ const MAX_ROOM_PARTICIPANTS=8;
 app.disable('x-powered-by');
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self)');next()});
 app.use(express.static(path.join(__dirname,'public')));
-app.get('/health',(_req,res)=>res.json({ok:true}));
+app.get('/health',(_req,res)=>res.json({ok:true,relayConfigured:Boolean((process.env.TURN_URL&&process.env.TURN_USERNAME&&process.env.TURN_CREDENTIAL)||(process.env.METERED_TURN_DOMAIN&&process.env.METERED_TURN_API_KEY))}));
 // Relay credentials are provided only to live room members. A TURN credential
 // is necessarily delivered to browsers that need to make encrypted WebRTC calls.
 // No account-wide Metered secret is sent to the client.
@@ -163,7 +163,7 @@ s.on('queue:add',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const id=getVideo(d?.url);if(!id)return ack?.({error:'Enter a valid YouTube video'});
  if(r.queue.length>=20)return ack?.({error:'The queue is full'});
- const title=typeof d.title==='string'?d.title.trim().replace(/[<>\\x00-\\x1f]/g,'').slice(0,110):'';
+ const title=typeof d.title==='string'?d.title.trim().replace(/[\u0000-\u001f<>]/g,'').slice(0,140):'';
  const item={id:randomBytes(6).toString('hex'),video:id,title:title||'YouTube video',addedBy:r.users.get(s.id)};
  r.queue.push(item);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true});
 });
