@@ -121,7 +121,32 @@ async function createPeer(id,initiator=false){
  localStream.getTracks().forEach(track=>pc.addTrack(track,localStream));
  pc.ontrack=e=>{const stream=remoteStreams.get(id);if(!stream)return;const tracks=e.streams?.[0]?.getTracks()||[e.track];for(const track of tracks)if(!stream.getTracks().some(t=>t.id===track.id))stream.addTrack(track);video.srcObject=stream;video.play().catch(()=>tileStatus(id,'Tap to play audio'))};
  pc.onicecandidate=e=>{if(e.candidate&&socket.connected)socket.emit('call:signal',{to:id,data:{candidate:e.candidate.toJSON()}})};
- pc.onconnectionstatechange=()=>{if(connections.get(id)!==pc)return;const state=pc.connectionState;if(state==='connected'){tileStatus(id,'');tileStatus(id,'');const status=videoTiles.get(id)?.tile.querySelector('.tile-status');if(status)status.remove();$('callStatus').textContent='Connected'}else if(state==='failed'){tileStatus(id,'Connection failed');toast('Call could not connect. A TURN relay may be required.')}else if(state==='disconnected'){tileStatus(id,'Reconnecting…')}else tileStatus(id,state)};
+ pc.onconnectionstatechange=()=>{
+   if(connections.get(id)!==pc)return;
+   const state=pc.connectionState;
+   if(state==='connected'){
+    pc._restartAttempts=0;
+    const label=videoTiles.get(id)?.tile.querySelector('.tile-status');if(label)label.remove();
+    $('callStatus').textContent='Connected';
+   }else if(state==='failed'){
+    tileStatus(id,iceConfig.relayAvailable?'Connection failed — retrying':'Connection failed — TURN relay needed');
+    $('callStatus').textContent='Connection issue';
+    const attempts=pc._restartAttempts||0;
+    if(attempts>=2){toast('Unable to connect this person. Please try another network or configure TURN.');return}
+    if(me<id&&pc.signalingState==='stable'){
+      pc._restartAttempts=attempts+1;
+      setTimeout(async()=>{
+        if(connections.get(id)!==pc||pc.signalingState!=='stable'||!callActive)return;
+        try{
+          const offer=await pc.createOffer({iceRestart:true});
+          await pc.setLocalDescription(offer);
+          socket.emit('call:signal',{to:id,data:{description:pc.localDescription.toJSON()}});
+        }catch(e){console.warn('ICE retry failed',e)}
+      },1500*(attempts+1))
+    }
+   }else if(state==='disconnected')tileStatus(id,'Reconnecting…');
+   else tileStatus(id,state)
+  };
  if(initiator){const offer=await pc.createOffer();await pc.setLocalDescription(offer);socket.emit('call:signal',{to:id,data:{description:pc.localDescription.toJSON()}})}
  return pc
 }
