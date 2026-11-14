@@ -8,10 +8,15 @@ let callMembers=[],unread=0,chatOpen=false;
 const connections=new Map(),remoteStreams=new Map(),candidateQueues=new Map(),videoTiles=new Map();
 const toast=msg=>{const el=$('toast');el.textContent=msg;el.classList.remove('hidden');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>el.classList.add('hidden'),3800)};
 function notice(msg){$('notice').textContent=msg}
-function nickname(){return $('name').value.trim().slice(0,25)||'Guest'}
-function setupRoom(d){room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();(d.messages||[]).forEach(m=>addMessage(m,false));initPlayer()}
-function create(){socket.emit('create',{name:nickname()},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
-function join(){socket.emit('join',{id:roomFromPath||room,name:nickname()},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
+let currentName='';
+try{$('name').value=localStorage.getItem('togetherly.nickname')||''}catch{}
+function nickname(){return $('name').value.trim().slice(0,25)}
+function saveName(n){currentName=n;$('name').value=n;try{localStorage.setItem('togetherly.nickname',n)}catch{}}
+function requireName(){const n=nickname();if(!n){toast('Enter your name before joining');$('name').focus();return null}saveName(n);return n}
+$('rename').onclick=()=>{if(!room)return;const v=prompt('What name should others see?',currentName||nickname());if(v===null)return;const n=v.trim().slice(0,25);if(!n)return toast('Name cannot be empty');socket.emit('room:rename',{name:n},result=>{if(result?.ok){saveName(n);toast('Name updated')}else toast(result?.error||'Could not update name')})};
+function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();(d.messages||[]).forEach(m=>addMessage(m,false));initPlayer()}
+function create(){const n=requireName();if(!n)return;socket.emit('create',{name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
+function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFromPath||room,name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
 if(roomFromPath){$('joinbox').classList.remove('hidden');$('create').textContent='Create a different room'}
 $('copy').onclick=async()=>{const url=location.origin+'/room/'+room;try{await navigator.clipboard.writeText(url);toast('Invite link copied')}catch{prompt('Copy this room link:',url)}};
@@ -35,7 +40,7 @@ $('play').onclick=()=>{if(playerReady){player.playVideo();sendPlayback('play')}}
 $('pause').onclick=()=>{if(playerReady){player.pauseVideo();sendPlayback('pause')}};
 $('sync').onclick=()=>socket.emit('sync');
 setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')},22000);
-socket.on('connect',()=>{me=socket.id;if(room){leaveCall(false);socket.emit('join',{id:room,name:nickname()},d=>{if(d?.error){toast(d.error);notice('Room expired. Please create a new room.');return}lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];showMembers();socket.emit('sync');notice('Reconnected. Rejoin your video call if needed.')})}});
+socket.on('connect',()=>{me=socket.id;if(room){leaveCall(false);socket.emit('join',{id:room,name:currentName||nickname()},d=>{if(d?.error){toast(d.error);notice('Room expired. Please create a new room.');return}lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];showMembers();socket.emit('sync');notice('Reconnected. Rejoin your video call if needed.')})}});
 socket.on('disconnect',()=>{notice('Connection lost. Trying to reconnect…');leaveCall(false)});
 async function getMedia(){
  if(localStream&&localStream.active)return localStream;
