@@ -73,3 +73,17 @@ test('theater fullscreen keeps video-call and chat in the same canvas',()=>{
  assert.ok(html.includes('.video-shell.pseudo-fullscreen'));
  assert.ok(html.includes('.video-shell.theater-mode #chatPanel.chat-open'));
 });
+
+test('video calls can be minimized and restored without ending the call',()=>{
+ assert.ok(html.includes('id="callBubble"'),'Collapsed call bubble missing');
+ assert.ok(html.includes('id="minimizeCall"'),'Minimize button missing');
+ assert.ok(frontend.includes("callMinimized=true;syncCallDock()"),'Minimizing should preserve call state');
+ assert.ok(frontend.includes("callMinimized=false;syncCallDock()"),'Restore action missing');
+ assert.ok(frontend.includes("!callActive||!callMinimized"),'Bubble should show only for minimized active calls');
+});
+test('cinema stylesheet is loaded and group calling requests room-scoped ICE servers',()=>{
+ assert.ok(html.includes('/cinema.css?v=1'),'Cinema stylesheet not loaded');
+ assert.ok(frontend.includes("new URLSearchParams({room,sid:socket.id||''})"),'No scoped ICE request');
+ assert.ok(backend.includes('allowRtcRequest(req)'),'TURN endpoint must check room membership');
+ assert.ok(backend.includes('METERED_TURN_DOMAIN')&&backend.includes('METERED_TURN_API_KEY'),'Metered TURN integration missing');
+});
