@@ -7,7 +7,58 @@ app.disable('x-powered-by');
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self)');next()});
 app.use(express.static(path.join(__dirname,'public')));
 app.get('/health',(_req,res)=>res.json({ok:true}));
-app.get('/api/rtc',(_req,res)=>{const iceServers=[{urls:['stun:stun.l.google.com:19302','stun:stun.cloudflare.com:3478']}];if(process.env.TURN_URL&&process.env.TURN_USERNAME&&process.env.TURN_CREDENTIAL)iceServers.push({urls:process.env.TURN_URL.split(','),username:process.env.TURN_USERNAME,credential:process.env.TURN_CREDENTIAL});res.set('Cache-Control','no-store').json({iceServers,relayAvailable:iceServers.some(entry=>[].concat(entry.urls).some(u=>u.startsWith('turn:')||u.startsWith('turns:')))})});
+// Relay credentials are provided only to live room members. A TURN credential
+// is necessarily delivered to browsers that need to make encrypted WebRTC calls.
+// No account-wide Metered secret is sent to the client.
+const rtcCache={value:null,expires:0};
+const rtcHits=new Map();
+function allowRtcRequest(req){
+ const sid=req.query.sid, roomId=req.query.room;
+ if(typeof sid!=='string'||typeof roomId!=='string'||!(/^[a-f0-9]{24}$/.test(roomId)))return false;
+ const client=io.sockets?.sockets?.get(sid);
+ if(!client||client.data.room!==roomId||!rooms.get(roomId)?.users.has(sid))return false;
+ const now=Date.now(),entry=rtcHits.get(sid)||{count:0,until:now+60000};
+ if(now>entry.until){entry.count=0;entry.until=now+60000}
+ entry.count++;rtcHits.set(sid,entry);
+ return entry.count<=12;
+}
+async function meteredIceServers(){
+ const domain=(process.env.METERED_TURN_DOMAIN||'').trim().toLowerCase();
+ const apiKey=(process.env.METERED_TURN_API_KEY||'').trim();
+ if(!domain||!apiKey)return [];
+ if(!/^[a-z0-9-]+\.metered\.live$/.test(domain))throw new Error('Invalid Metered TURN domain');
+ if(rtcCache.value&&rtcCache.expires>Date.now())return rtcCache.value;
+ const url=new URL('https://'+domain+'/api/v1/turn/credentials');
+ url.searchParams.set('apiKey',apiKey);
+ const response=await fetch(url,{signal:AbortSignal.timeout(6000)});
+ if(!response.ok)throw new Error('Metered credentials request failed: '+response.status);
+ const records=await response.json();
+ if(!Array.isArray(records))throw new Error('TURN provider returned invalid configuration');
+ const servers=records.filter(entry=>entry&&
+  (typeof entry.urls==='string'||Array.isArray(entry.urls))&&
+  [].concat(entry.urls).every(u=>typeof u==='string'&&/^(stun:|turn:|turns:)/.test(u))
+ ).slice(0,12).map(entry=>({
+  urls:entry.urls,...(entry.username?{username:entry.username}:{}),
+  ...(entry.credential?{credential:entry.credential}:{})
+ }));
+ if(!servers.some(entry=>[].concat(entry.urls).some(u=>u.startsWith('turn:')||u.startsWith('turns:'))))throw new Error('TURN provider did not supply relays');
+ rtcCache.value=servers;rtcCache.expires=Date.now()+4*60*1000;return servers;
+}
+app.get('/api/rtc',async(req,res)=>{
+ res.set('Cache-Control','private, no-store');
+ if(!allowRtcRequest(req))return res.status(403).json({error:'Join a room to configure video calls'});
+ const iceServers=[{urls:['stun:stun.l.google.com:19302','stun:stun.cloudflare.com:3478']}];
+ let relayError=false;
+ if(process.env.TURN_URL&&process.env.TURN_USERNAME&&process.env.TURN_CREDENTIAL){
+  iceServers.push({urls:process.env.TURN_URL.split(',').map(v=>v.trim()),username:process.env.TURN_USERNAME,credential:process.env.TURN_CREDENTIAL});
+ }else{
+  try{iceServers.push(...await meteredIceServers())}
+  catch(error){relayError=true;console.warn('TURN configuration unavailable:',error.message)}
+ }
+ res.json({iceServers,
+  relayAvailable:iceServers.some(entry=>[].concat(entry.urls).some(u=>u.startsWith('turn:')||u.startsWith('turns:'))),
+  relayError});
+});
 app.get('/room/:id',(_req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 const safeName=x=>typeof x==='string'?x.replace(/[<>\x00-\x1f]/g,'').trim().slice(0,25):'';
 const validRoom=x=>typeof x==='string'&&/^[a-f0-9]{24}$/.test(x);
