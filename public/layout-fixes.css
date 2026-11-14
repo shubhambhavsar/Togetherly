@@ -1,0 +1,99 @@
+/* Small, deliberate layout corrections to Blue Hour Cinema. */
+.room-grid{align-items:start}
+.watch-stage{min-width:0}
+.player-toolbar{
+ display:flex!important;align-items:center!important;justify-content:space-between!important;
+ gap:12px!important;padding:13px 2px 10px!important;min-width:0;
+}
+.playback-controls{display:flex;gap:8px;align-items:center;min-width:0;flex:1 1 auto}
+.toolbar-actions{display:flex;align-items:center;gap:9px;flex:none}
+.toolbar-actions button{min-height:42px;display:inline-flex!important;align-items:center;justify-content:center;gap:8px;line-height:1.2}
+#toolbarFullscreen{border-color:#6b8399;background:#20344a;color:#e2edf5}
+#openExplore{background:#b6d0df;color:#0b1420;border-color:#b6d0df;padding:11px 16px;font-weight:700}
+#openExplore:hover{background:#d0e3ec}
+.player-toolbar .icon-control{min-width:40px;height:40px;font-size:16px;flex:none}
+.player-toolbar .sync-status{min-width:0;white-space:nowrap}
+.theater-toggle{display:none!important}
+.video-shell.theater-mode .theater-toggle{
+ display:inline-flex!important;position:absolute!important;top:max(10px,env(safe-area-inset-top))!important;
+ left:12px!important;z-index:35!important;align-items:center;justify-content:center;
+ padding:10px 13px!important;background:#15273cf0!important;
+ color:#f2f6f7!important;border:1px solid #a2bfd0aa!important;
+ box-shadow:0 4px 22px #000b!important;min-height:42px
+}
+.call-overlay{top:58px!important;right:11px!important;width:min(30%,230px)!important;z-index:20}
+.call-overlay.expanded{width:min(55%,400px)!important}
+.call-tile{box-shadow:0 5px 19px #0009;background:#11202d}
+.call-tile .tile-status{white-space:normal!important;max-width:95%!important;font-size:10px!important;line-height:1.2}
+.call-tile-actions{margin-top:7px;gap:6px}
+.call-tile-actions button{min-height:30px}
+.call-bubble{top:10px!important;right:11px!important}
+.video-shell.theater-mode .call-overlay{top:max(62px,env(safe-area-inset-top))!important;right:12px!important;width:min(30vw,300px)!important}
+.video-shell.theater-mode .call-overlay.expanded{width:min(56vw,470px)!important}
+.video-shell.theater-mode .call-bubble{top:max(63px,env(safe-area-inset-top))!important}
+.chat-connection{margin-left:auto;color:#95c7aa;font-size:10px;white-space:nowrap}
+.chat-connection.offline{color:#e3ab9e}
+.chat-feedback{min-height:15px;font-size:10px;color:#93b9cd;margin-top:6px;line-height:1.4}
+.chat-feedback.failed{color:#ffc0ac}
+.send-button:disabled{opacity:.5}
+.msg{max-width:100%;overflow-wrap:anywhere;padding:6px 0}
+.msg b{color:#cce0ec}
+.room-rail{
+ position:sticky;top:14px;display:flex;flex-direction:column;
+ height:min(680px,calc(100dvh - 194px));min-height:470px;overflow:hidden;
+}
+.people-section{flex:0 0 auto;padding:2px 0 12px;margin:0 0 10px}
+.people-section .members{max-height:118px;overflow:auto;gap:8px;margin:12px 0 9px;padding-right:3px}
+.people-section .call-status{padding:5px 0 10px}
+.callcontrols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.callcontrols>*{min-width:0;white-space:normal!important;line-height:1.2;min-height:34px!important;padding:8px!important;font-size:11px}
+#shareCall,#hangup{grid-column:1/-1}
+.privacy-note{font-size:10px;line-height:1.45;margin:9px 0 0}
+.conversation-section{
+ display:flex;flex:1;flex-direction:column;min-height:0;
+ margin:0;padding:12px 0 0;border-bottom:0
+}
+.conversation-section>.section-title-row{gap:8px;align-items:baseline}
+.conversation-section .chat{flex:1;height:auto!important;min-height:90px;overflow-y:auto;margin:8px 0!important;padding-right:4px}
+.conversation-section .chat-input{flex:none;align-items:stretch}
+.conversation-section .chat-input input{min-width:0;flex:1}
+.conversation-section .send-button{flex:none;min-width:42px;min-height:42px}
+#closeChat{display:none}
+.video-shell.theater-mode #chatPanel{height:auto;max-height:min(65vh,460px);overflow:hidden}
+.video-shell.theater-mode #chatPanel .chat{height:min(38vh,270px)!important;flex:1}
+.video-shell.theater-mode #closeChat{display:inline}
+.fallback-actions{flex-wrap:wrap;justify-content:center}
+#chooseAnother{min-height:36px}
+.video-result-channel{line-height:1.4}
+@media(max-width:1080px){
+ .player-toolbar{gap:10px}
+ .toolbar-actions{gap:7px}
+ #openExplore{padding:10px 12px}
+ .sync-status{font-size:10px}
+}
+@media(max-width:860px){
+ .room-rail{position:static;display:flex;height:auto;min-height:0;max-height:none;overflow:visible;border-left:0;padding:0}
+ .people-section{padding:12px 0 17px;margin:0}
+ .people-section .members{max-height:180px}
+ .conversation-section{display:none;position:fixed;z-index:1700;left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom));height:min(68dvh,450px);max-height:68dvh;padding:17px;border:1px solid #53728a;background:#16293d;border-radius:15px;box-shadow:0 0 0 100vmax #0008,0 14px 40px #000b}
+ .conversation-section.chat-open{display:flex}
+ .conversation-section .chat{height:auto!important;flex:1;min-height:70px}
+ #closeChat{display:inline}
+ .chat-bubble{display:inline-flex!important;align-items:center;gap:6px;z-index:25}
+ .player-toolbar{flex-wrap:wrap}
+ .toolbar-actions{justify-content:flex-end}
+ .call-overlay{top:45px!important;right:6px!important;width:min(42%,180px)!important}
+ .call-overlay.expanded{width:min(73%,270px)!important}
+}
+@media(max-width:600px){
+ .player-toolbar{display:grid!important;grid-template-columns:1fr!important;gap:11px!important}
+ .playback-controls{justify-content:flex-start;width:100%}
+ .toolbar-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);width:100%;gap:7px}
+ .toolbar-actions button{width:100%;min-width:0;font-size:12px;white-space:nowrap}
+ .toolbar-actions button span{display:inline}
+ .call-overlay{top:40px!important;right:5px!important;width:44%!important}
+ .video-shell.theater-mode .call-overlay{top:max(58px,env(safe-area-inset-top))!important;right:6px!important;width:min(47vw,185px)!important}
+ .video-shell.theater-mode .call-overlay.expanded{width:min(70vw,270px)!important}
+ .video-shell.theater-mode .theater-toggle{top:max(7px,env(safe-area-inset-top))!important;left:7px!important;font-size:11px}
+ .chat-feedback{font-size:11px}
+}

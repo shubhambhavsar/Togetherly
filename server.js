@@ -77,11 +77,39 @@ async function searchYouTube(q){
  const response=await fetch(url,{signal:AbortSignal.timeout(9000)});
  if(!response.ok){console.warn('YouTube discovery failed:',response.status);throw new Error('YouTube search is unavailable. Try later or use a link.')}
  const body=await response.json();
- const items=(body.items||[]).filter(x=>/^[A-Za-z0-9_-]{11}$/.test(x.id?.videoId||'')).map(x=>({
+ const candidates=(body.items||[]).filter(x=>/^[A-Za-z0-9_-]{11}$/.test(x.id?.videoId||'')).map(x=>({
   id:x.id.videoId,
   title:String(x.snippet?.title||'Untitled video').slice(0,150),
   channel:String(x.snippet?.channelTitle||'').slice(0,80)
  }));
+ let items=candidates;
+ // Search's videoEmbeddable filter is not a guarantee. Cross-check status.embeddable
+ // and regional restrictions with videos.list (1 quota unit for the batch).
+ if(candidates.length){
+  try{
+   const detailUrl=new URL('https://www.googleapis.com/youtube/v3/videos');
+   for(const [k,v] of Object.entries({part:'status,contentDetails',id:candidates.map(v=>v.id).join(','),key:process.env.YOUTUBE_API_KEY}))detailUrl.searchParams.set(k,v);
+   const detailResponse=await fetch(detailUrl,{signal:AbortSignal.timeout(9000)});
+   if(!detailResponse.ok)throw Error('Video eligibility lookup returned '+detailResponse.status);
+   const details=await detailResponse.json();
+   const byId=new Map((details.items||[]).map(entry=>[entry.id,entry]));
+   const usableInRegions=entry=>{
+    const restriction=entry.contentDetails?.regionRestriction;
+    const targets=['CA','IN'];
+    if(restriction?.blocked&&targets.some(code=>restriction.blocked.includes(code)))return false;
+    if(restriction?.allowed&&targets.some(code=>!restriction.allowed.includes(code)))return false;
+    return true
+   };
+   items=candidates.filter(v=>{
+    const entry=byId.get(v.id);
+    return entry?.status?.embeddable===true&&entry.status?.privacyStatus==='public'&&usableInRegions(entry)
+   }).map(v=>({...v,eligibility:'prechecked'}));
+  }catch(e){
+   console.warn('Video eligibility check unavailable:',e.message);
+   // Show unverified results rather than pretending that we checked them.
+   items=candidates.map(v=>({...v,eligibility:'unverified'}))
+  }
+ }
  if(searchCache.size>120)searchCache.clear();
  searchCache.set(cacheKey,{items,until:now+10*60*1000});return items;
 }
@@ -152,7 +180,24 @@ s.on('queue:remove',(d,ack)=>{
 });
 s.on('playback',d=>{const r=roomOf(s);if(!r||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
 s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
-s.on('message',d=>{const r=roomOf(s);if(!r||typeof d?.text!=='string')return;const text=d.text.trim().slice(0,500);if(!text)return;const m={id:randomBytes(6).toString('hex'),name:r.users.get(s.id),text};r.messages.push(m);if(r.messages.length>40)r.messages.shift();io.to(r.id).emit('message',m)});
+function sendChat(d,ack){
+ const r=roomOf(s);
+ if(!r){ack?.({error:'You are not connected to a room'});return}
+ if(typeof d?.text!=='string'){ack?.({error:'Enter a message'});return}
+ const message=d.text.trim().slice(0,500);
+ if(!message){ack?.({error:'Message cannot be empty'});return}
+ const now=Date.now(),previous=s.data.lastChatAt||0;
+ if(now-previous<250){ack?.({error:'Sending too quickly. Try again.'});return}
+ s.data.lastChatAt=now;
+ const m={id:randomBytes(8).toString('hex'),name:r.users.get(s.id),text:message,at:now};
+ r.messages.push(m);if(r.messages.length>80)r.messages.shift();
+ // Existing tabs use the legacy message event; new tabs use chat:new.
+ io.to(r.id).emit('message',m);
+ io.to(r.id).emit('chat:new',m);
+ ack?.({ok:true,id:m.id});
+}
+s.on('chat:send',sendChat);
+s.on('message',sendChat);
 
 s.on('call:join',(data,ack)=>{
  const r=roomOf(s);if(typeof ack!=='function')return;
