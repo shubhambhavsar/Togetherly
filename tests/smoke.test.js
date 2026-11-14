@@ -277,3 +277,29 @@ test('search discovery hides technical eligibility notices and player shows simp
  assert.ok(frontend.includes("No available videos found. Try another search."),'Empty search should have simple feedback');
  assert.ok(backend.includes("status?.embeddable===true"),'Keep backend filtering for video availability');
 });
+
+test('room capacity is eight participants without a global room count limit',async()=>{
+ let onConnection;
+ class FakeIO{on(event,fn){if(event==='connection')onConnection=fn}to(){return{emit(){}}}}
+ const express=()=>({disable(){},use(){},get(){}});express.static=()=>()=>{};
+ const fakeRequire=id=>id==='express'?express:id==='http'?{createServer:()=>({listen(){}})}:
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'a'.repeat(n*2)})}:
+  id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ vm.runInNewContext(backend,{require:fakeRequire,process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
+ const makeSocket=id=>{
+  const handlers={};onConnection({id,data:{},on:(event,fn)=>handlers[event]=fn,join(){},leave(){},to(){return{emit(){}}}});
+  return {ask:(event,data)=>new Promise(resolve=>handlers[event](data,resolve))};
+ };
+ const a=makeSocket('a'),created=await a.ask('create',{name:'A'});
+ assert.ok(created.id);
+ for(let i=1;i<8;i++){
+  const res=await makeSocket('peer'+i).ask('join',{id:created.id,name:'Peer'+i});
+  assert.equal(res.members.length,i+1);
+ }
+ const overflow=await makeSocket('ninth').ask('join',{id:created.id,name:'Extra'});
+ assert.equal(overflow.error,'Room full');
+ const another=await makeSocket('fresh').ask('create',{name:'B'});
+ assert.ok(another.id,'Creating another independent room remains possible');
+ assert.ok(backend.includes('const MAX_ROOM_PARTICIPANTS=8'));
+ assert.ok(!backend.includes('const MAX_ROOMS'),'No global room cap is configured');
+});
