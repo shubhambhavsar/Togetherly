@@ -4,6 +4,7 @@ const socket=io({reconnection:true,reconnectionDelay:500});
 const roomFromPath=location.pathname.match(/^\/room\/([a-f0-9]{24})$/)?.[1];
 let room=null,me=null,participants=[],player=null,playerReady=false,ytReady=false,applying=false,lastState=null,version=0;
 let roomQueue=[],searchReady=false,searching=false;
+const displayedChatIds=new Set(),unplayableVideos=new Set();
 let localStream=null,callActive=false,callJoining=false,iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
 let callMembers=[],unread=0,chatOpen=false,callMinimized=false,callRole=null,sharingCall=false;
 const cameraMembers=()=>callMembers.filter(m=>m.role==='camera');
@@ -17,7 +18,7 @@ function nickname(){return $('name').value.trim().slice(0,25)}
 function saveName(n){currentName=n;$('name').value=n;try{localStorage.setItem('togetherly.nickname',n)}catch{}}
 function requireName(){const n=nickname();if(!n){toast('Enter your name before joining');$('name').focus();return null}saveName(n);return n}
 $('rename').onclick=()=>{if(!room)return;const v=prompt('What name should others see?',currentName||nickname());if(v===null)return;const n=v.trim().slice(0,25);if(!n)return toast('Name cannot be empty');socket.emit('room:rename',{name:n},result=>{if(result?.ok){saveName(n);toast('Name updated')}else toast(result?.error||'Could not update name')})};
-function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();(d.messages||[]).forEach(m=>addMessage(m,false));initPlayer()}
+function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();initPlayer()}
 function create(){const n=requireName();if(!n)return;socket.emit('create',{name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFromPath||room,name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
@@ -48,8 +49,20 @@ socket.on('call:members',members=>{
  else $('callStatus').textContent='On camera';
  const mine=callUser(me);if(mine?.role==='camera'){sharingCall=!!mine.sharing;updateSharingUI()}
 });
-function addMessage(m,notify=true){const line=document.createElement('div');line.className='msg',name=document.createElement('b');name.textContent=m.name+': ';line.append(name,document.createTextNode(m.text));$('chat').append(line);$('chat').scrollTop=$('chat').scrollHeight;if(notify&&!chatOpen&&matchMedia('(max-width:850px)').matches){unread=Math.min(99,unread+1);$('unread').textContent=unread;$('unread').classList.remove('hidden')}}
-socket.on('message',m=>addMessage(m));
+function addMessage(m,notify=true){
+ if(!m||typeof m.text!=='string')return;
+ if(m.id&&displayedChatIds.has(m.id))return;
+ if(m.id){displayedChatIds.add(m.id);if(displayedChatIds.size>120)displayedChatIds.delete(displayedChatIds.values().next().value)}
+ const line=document.createElement('div');line.className='msg';
+ const who=document.createElement('b');who.textContent=(m.name||'Participant')+': ';
+ const content=document.createElement('span');content.textContent=m.text;
+ line.append(who,content);$('chat').append(line);
+ $('chat').scrollTop=$('chat').scrollHeight;
+ if(notify&&!chatOpen&&matchMedia('(max-width:850px)').matches){
+  unread=Math.min(99,unread+1);$('unread').textContent=unread;$('unread').classList.remove('hidden')
+ }
+}
+socket.on('chat:new',m=>addMessage(m));
 
 socket.on('queue:update',items=>{roomQueue=Array.isArray(items)?items:[];renderQueue()});
 function clip(text,n=100){return String(text||'').slice(0,n)}
@@ -148,7 +161,32 @@ $('pasteLink').onclick=async()=>{
 };
 renderQueue();
 
-$('chatForm').onsubmit=e=>{e.preventDefault();const text=$('chatText').value.trim();if(text){socket.emit('message',{text});$('chatText').value=''}};
+let chatSending=false;
+function chatFeedback(message,failed=false){
+ const element=$('chatFeedback');element.textContent=message;
+ element.classList.toggle('failed',failed)
+}
+function updateChatConnection(){
+ const live=socket.connected&&!!room;
+ $('chatConnection').textContent=live?'● Connected':'○ Disconnected';
+ $('chatConnection').classList.toggle('offline',!live);
+ if(!live)chatFeedback('Connection lost. Your message will stay here until you reconnect.',true);
+ else if(!chatSending)chatFeedback('')
+}
+$('chatForm').onsubmit=e=>{
+ e.preventDefault();
+ if(chatSending)return;
+ const text=$('chatText').value.trim();
+ if(!text){chatFeedback('Type a message first.');return}
+ if(!socket.connected||!room){chatFeedback('Not connected. Reconnect before sending.',true);return}
+ chatSending=true;$('chatSend').disabled=true;chatFeedback('Sending…');
+ socket.timeout(9000).emit('chat:send',{text},(error,result)=>{
+  chatSending=false;$('chatSend').disabled=false;
+  if(error||!result?.ok){chatFeedback(result?.error||'Message could not be delivered. Try again.',true);return}
+  if($('chatText').value.trim()===text)$('chatText').value='';
+  chatFeedback('Sent ✓');$('chatText').focus();
+ })
+};
 function toggleChat(show){chatOpen=show;$('chatPanel').classList.toggle('chat-open',show);if(show){unread=0;$('unread').classList.add('hidden');setTimeout(()=>$('chatText').focus(),50)}}
 $('chatBubble').onclick=()=>toggleChat(!chatOpen);$('closeChat').onclick=()=>toggleChat(false);
 document.addEventListener('keydown',e=>{
@@ -173,6 +211,7 @@ function updateTheaterUI(){
  document.body.classList.toggle('theater-lock',active);
  $('fullscreenToggle').setAttribute('aria-pressed',String(active));
  $('fullscreenToggle').setAttribute('aria-label',active?'Exit watch fullscreen':'Enter watch fullscreen');
+ $('toolbarFullscreen').setAttribute('aria-pressed',String(active));
  $('theaterLabel').textContent=active?'Exit fullscreen':'Fullscreen';
  if(active){
   if(theaterChat.parentNode!==theaterShell)theaterShell.appendChild(theaterChat);
@@ -202,6 +241,7 @@ async function toggleTheater(){
  updateTheaterUI();
 }
 $('fullscreenToggle').onclick=toggleTheater;
+$('toolbarFullscreen').onclick=toggleTheater;
 document.addEventListener('fullscreenchange',()=>{
  if(document.fullscreenElement!==theaterShell&&theaterFallback===false){updateTheaterUI()}
  else updateTheaterUI();
@@ -249,8 +289,8 @@ $('play').onclick=()=>{if(playerReady){player.playVideo();sendPlayback('play')}}
 $('pause').onclick=()=>{if(playerReady){player.pauseVideo();sendPlayback('pause')}};
 $('sync').onclick=()=>socket.emit('sync');
 setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')},22000);
-socket.on('connect',()=>{me=socket.id;if(room){leaveCall(false);socket.emit('join',{id:room,name:currentName||nickname()},d=>{if(d?.error){toast(d.error);notice('Room expired. Please create a new room.');return}lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();showMembers();socket.emit('sync');notice('Reconnected. Rejoin your video call if needed.')})}});
-socket.on('disconnect',()=>{notice('Connection lost. Trying to reconnect…');leaveCall(false)});
+socket.on('connect',()=>{me=socket.id;updateChatConnection();if(room){leaveCall(false);socket.emit('join',{id:room,name:currentName||nickname()},d=>{if(d?.error){toast(d.error);notice('Room expired. Please create a new room.');return}lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();showMembers();updateChatConnection();socket.emit('sync');notice('Reconnected. Rejoin your video call if needed.')})}});
+socket.on('disconnect',()=>{notice('Connection lost. Trying to reconnect…');updateChatConnection();leaveCall(false)});
 async function getMedia(){
  if(localStream&&localStream.active)return localStream;
  if(!navigator.mediaDevices?.getUserMedia)throw Error('Camera and microphone need HTTPS and a compatible browser');
