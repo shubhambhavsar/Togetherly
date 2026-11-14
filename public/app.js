@@ -481,45 +481,66 @@ async function onSignal({from,data}){
   }
  }catch(e){console.error('Call signaling failed',e);tileStatus(from,'Connection error');toast('Call signaling error. Try leaving and rejoining.')}
 }
-function updateSharingUI(){
- $('shareCall').textContent=sharingCall?'✓ Guests can see/hear me':'Allow guests to see/hear my camera';
- $('shareCall').setAttribute('aria-pressed',String(sharingCall))
-}
-async function joinCall(role='camera'){
- if(callActive||callJoining||!room)return;
- if(role==='camera'&&cameraMembers().length>=2){toast('Both camera seats are taken. Choose Watch the call instead.');return}
- callJoining=true;$('call').disabled=true;$('watchCall').disabled=true;
- $('callStatus').textContent=role==='camera'?'Requesting camera permission…':'Joining as spectator…';
+async function loadIceServers(){
  try{
-  if(role==='camera')await getMedia();
-  try{
-   const params=new URLSearchParams({room,sid:socket.id||''});
-   const response=await fetch('/api/rtc?'+params.toString(),{cache:'no-store'});
-   if(response.ok){const config=await response.json();if(Array.isArray(config.iceServers))iceConfig=config}
-  }catch(e){console.warn('RTC configuration unavailable:',e)}
-  socket.timeout(10000).emit('call:join',{role},async(err,result)=>{
-   if(err||result?.error){toast(result?.error||'Unable to join the call');leaveCall(false);return}
-   callRole=result.role;callActive=true;callJoining=false;sharingCall=false;
-   callMembers=result.callMembers||callMembers;
-   if(callRole==='camera')displayTile('self',true).srcObject=localStream;
-   setCallUI(true);
-   if(callRole==='spectator')$('callNote').textContent='Guests see live cameras only when their owners approve. Your own camera and mic remain off.';
-   try{for(const id of result.peers||[])await createPeer(id,true)}catch(e){console.warn('Participant connection failed:',e);toast('Some cameras may not connect on this network.')}
-  })
- }catch(e){toast(e.message||'Camera and microphone permission denied');leaveCall(false)}
+  const params=new URLSearchParams({room,sid:socket.id||''});
+  const response=await fetch('/api/rtc?'+params.toString(),{cache:'no-store'});
+  if(!response.ok)return;
+  const config=await response.json();
+  if(Array.isArray(config.iceServers))iceConfig=config
+ }catch(error){console.warn('RTC configuration unavailable:',error)}
 }
-$('call').onclick=()=>joinCall('camera');
-$('watchCall').onclick=()=>joinCall('spectator');
-$('shareCall').onclick=()=>{
- if(!callActive||callRole!=='camera')return;
- const enabled=!sharingCall;
- socket.emit('call:share',{enabled},ack=>{
-  if(ack?.error)return toast(ack.error);
-  sharingCall=ack?.sharing===true;updateSharingUI();
-  toast(sharingCall?'Guests can see and hear you':'Your camera is private to the other caller')
- });
-};
-$('hangup').onclick=()=>leaveCall(true);
+function offerAvailableCameras(ids){
+ for(const id of ids||[]){
+  if(!connections.has(id))createPeer(id,true).catch(error=>console.warn('Camera subscription failed',error))
+ }
+}
+// All room members are receive-only subscribers by default. No media permissions.
+async function startSpectatorView(){
+ if(!room||!socket.connected||callActive||callJoining)return;
+ callJoining=true;updateCallActions();
+ try{
+  await loadIceServers();
+  if(!room||!socket.connected){callJoining=false;updateCallActions();return}
+  socket.timeout(10000).emit('call:join',{role:'spectator'},(err,result)=>{
+   callJoining=false;
+   if(err||result?.error){console.warn('Room camera viewing unavailable:',result?.error||err);updateCallActions();return}
+   callRole='spectator';callActive=true;callMembers=result.callMembers||callMembers;
+   setCallUI(true);offerAvailableCameras(result.peers)
+  })
+ }catch(error){callJoining=false;updateCallActions();console.warn('Passive viewer could not start:',error)}
+}
+// Camera joining is an explicit choice; the room can see and hear the camera owner.
+async function joinCall(){
+ if(callJoining||!room||callRole==='camera')return;
+ if(cameraMembers().length>=2)return toast('Both camera seats are currently occupied');
+ callJoining=true;updateCallActions();
+ $('callStatus').textContent='Requesting camera permission…';
+ try{
+  await getMedia();
+  await loadIceServers();
+  if(!socket.connected)throw Error('Connection lost; please reconnect to your room');
+  socket.timeout(10000).emit('call:join',{role:'camera'},(err,result)=>{
+   callJoining=false;
+   if(err||result?.error){
+    localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+    toast(result?.error||'Could not join on camera');updateCallActions();return
+   }
+   // Existing passive connections are no longer valid after role promotion.
+   [...connections.keys()].forEach(removePeer);
+   callRole='camera';callActive=true;sharingCall=true;
+   callMembers=result.callMembers||callMembers;
+   displayTile('self',true).srcObject=localStream;
+   setCallUI(true);offerAvailableCameras(result.peers)
+  })
+ }catch(error){
+  callJoining=false;
+  localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+  updateCallActions();toast(error.message||'Could not access your camera')
+ }
+}
+$('call').onclick=joinCall;
+$('hangup').onclick=()=>{leaveCall(true);startSpectatorView()};
 $('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
 $('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
 // Tapping any camera tile cycles compact → minimized bubble → enlarged → compact.
