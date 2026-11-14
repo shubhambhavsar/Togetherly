@@ -8,7 +8,7 @@ A minimal shared YouTube watch room at https://everydaygrove.ca. One invitation 
 - Other participants can watch the synced YouTube player and chat independently of video-call connectivity.
 - Spectators automatically subscribe to room cameras without granting camera/microphone permissions. A passive viewer never publishes video or audio.
 - Choosing **Join on camera** explicitly makes that participant's video and audio available to everyone with the private room link. The UI discloses this before joining. Camera seats remain limited to two.
-- Minimize camera tiles to a compact bubble, or keep them on screen in Togetherly theater/fullscreen mode.
+- Minimize camera tiles to a compact bubble, or keep them on screen in Togetherly theater/fullscreen mode. Chat stays in the normal room and is not available in fullscreen.
 - In-room watch queue, recently watched videos on this device, one-tap clipboard paste, and optional embedded YouTube search.
 - Design palette: Midnight Navy #0B1420, Deep Slate #172433, Misty Blue #A8C7D8, Warm Ivory #F4F1EB, Soft Amber #E9BB89.
 
@@ -75,14 +75,14 @@ After deploying this release, the service's `/health` endpoint reports `relayCon
 
 ## Proposed UI improvement — cinema dock and tap-to-size cameras
 - In the normal watch room, **Chat** is alongside **Theater** and **Explore videos** below the player, instead of floating on top of the film.
-- In fullscreen/theater mode, **Exit fullscreen** and **Chat** share a compact dock; on phones the dock is a slim right-edge vertical rail. The chat uses a standard speech-bubble icon (not a telephone glyph).
-- The dock remains inside the fullscreen element; chat opens an accessible in-player panel that does not overlap the dock.
+- In fullscreen/theater mode, only **Exit fullscreen** stays visible; Chat remains in the normal watch room. On phones Exit is a compact right-edge control. The chat uses a standard speech-bubble icon (not a telephone glyph).
+- The fullscreen Exit control stays inside the player; the normal chat panel stays outside fullscreen and never covers the movie.
 - Video previews no longer show separate Minimize and Expand buttons. Tap the camera tile surface to cycle: **compact preview → minimized camera bubble → enlarged preview → compact preview**. A tap on the minimized bubble continues the cycle. A keyboard user can press Enter or Space on the tile surface.
 - Resizing camera tiles only changes their display. It does **not** mute, stop, or restart microphone/camera streams or interrupt the existing call.
 - These changes are intentionally prepared on a feature branch and require a separate approved merge to production.
 
 ## Pending mobile fullscreen compact-controls refinement
-On phone-sized screens, including touch devices in landscape orientation, fullscreen's wide **Exit fullscreen / Chat** pill becomes a narrow **right-edge vertical rail** with two 44 × 44 px icon-only buttons, approximately halfway down the screen. The rail stays away from the top-right camera tile area and center of the movie. The chat drawer opens to the left of the rail so the controls remain accessible. Accessible labels and unread-message counts remain available. Desktop retains the labeled controls. This is a stylesheet and markup refinement only; it does not change signaling, video, TURN, or chat delivery logic. Merge only after the user approves deployment.
+On phones, fullscreen contains only a compact **Exit fullscreen** button on the right edge; there is no fullscreen chat window or chat button. To send messages, users exit fullscreen and open Chat below the video. Desktop fullscreen likewise has no chat window. This is a stylesheet and markup refinement only; it does not change signaling, video, TURN, or chat delivery logic. Merge only after the user approves deployment.
 
 ## Pending: automatic spectator cameras and keyboard-safe mobile chat
 - Everyone who opens a room subscribes *receive-only* to active camera seats automatically, without a separate Watch call action and without invoking camera/microphone permissions.
@@ -91,3 +91,9 @@ On phone-sized screens, including touch devices in landscape orientation, fullsc
 - Chat in fullscreen uses the browser's `visualViewport` height and top offset while the message field is focused. The message list scrolls inside a sized panel, and the composer stays above the software keyboard whenever the browser reports the visible viewport correctly.
 - Opening chat on mobile does not automatically focus the text field and summon the keyboard. The user explicitly taps the input to type.
 - Review branch only until the user explicitly approves with `deploy` (Render publishes `main` automatically).
+
+## Pending release: keep chat outside fullscreen and simplify unavailable-video messages
+- In fullscreen, camera tiles and Exit fullscreen remain visible; chat is deliberately unavailable there. Exit fullscreen to access the normal chat button and drawer.
+- Successful Watch Shelf searches do not show a technical embedding/region precheck notice. Eligibility filtering still runs in the backend.
+- If YouTube playback fails, users see **This video is not available. Choose something else.** plus a **Find another video** action. YouTube error codes remain in console diagnostics, not the user-facing message.
+- See `docs/streaming-capacity-review-2026-11.md` for research into Netflix/Prime Video integration, current costs, room limits, and suggested scaling architecture.
