@@ -177,7 +177,7 @@ async function leaveCall(send=true){
 async function createPeer(id,initiator=false){
  if(connections.has(id))return connections.get(id);
  if(!callActive||!localStream)return null;
- const pc=new RTCPeerConnection(iceConfig);connections.set(id,pc);
+ const pc=new RTCPeerConnection({iceServers:iceConfig.iceServers});connections.set(id,pc);
  const remote=new MediaStream();remoteStreams.set(id,remote);
  const video=displayTile(id);video.srcObject=remote;
  localStream.getTracks().forEach(track=>pc.addTrack(track,localStream));
@@ -232,10 +232,20 @@ async function joinCall(){
  callJoining=true;$('call').disabled=true;$('callStatus').textContent='Requesting camera…';
  try{
   await getMedia();
-  try{const response=await fetch('/api/rtc');if(response.ok)iceConfig=await response.json()}catch(e){console.warn('RTC configuration unavailable',e)}
+  try{
+   const params=new URLSearchParams({room,sid:socket.id||''});
+   const response=await fetch('/api/rtc?'+params.toString(),{cache:'no-store'});
+   if(!response.ok)throw new Error('Video call configuration not available ('+response.status+')');
+   const config=await response.json();
+   if(Array.isArray(config.iceServers))iceConfig=config;
+   if(!config.relayAvailable)console.info('TURN relay is not configured; calls on restrictive networks may fail.');
+  }catch(e){console.warn('RTC configuration unavailable:',e)}
+
   socket.timeout(10000).emit('call:join',{},async(err,result)=>{
    if(err||result?.error){toast(result?.error||'Could not join call');leaveCall(false);return}
    callActive=true;callJoining=false;displayTile('self',true).srcObject=localStream;setCallUI(true);
+   if(!iceConfig.relayAvailable)$('callStatus').textContent='Direct connection only';
+
    try{for(const id of result.peers||[])await createPeer(id,true)}catch(e){console.error('Offer error',e);toast('Could not connect to a participant')}
   })
  }catch(e){toast(e.message||'Camera or microphone permission denied');leaveCall(false)}
