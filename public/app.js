@@ -402,9 +402,14 @@ function syncCallDock(){
  $('callOverlay').title='Tap to '+nextAction.toLowerCase()+' camera tiles';
  $('callBubble').setAttribute('aria-label','Enlarge camera tiles');
 }
+function nextCallViewMode(mode){
+ if(mode==='compact')return 'minimized';
+ if(mode==='minimized')return 'expanded';
+ return 'compact';
+}
 function cycleCallView(){
  if(!callActive)return;
- callViewMode=callViewMode==='compact'?'minimized':callViewMode==='minimized'?'expanded':'compact';
+ callViewMode=nextCallViewMode(callViewMode);
  syncCallDock()
 }
 function setCallUI(active){
