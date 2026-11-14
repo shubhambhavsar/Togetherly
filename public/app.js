@@ -21,7 +21,7 @@ $('create').onclick=create;$('join').onclick=join;
 if(roomFromPath){$('joinbox').classList.remove('hidden');$('create').textContent='Create a different room'}
 $('copy').onclick=async()=>{const url=location.origin+'/room/'+room;try{await navigator.clipboard.writeText(url);toast('Invite link copied')}catch{prompt('Copy this room link:',url)}};
 $('leave').onclick=()=>{leaveCall();location.href='/'};
-function showMembers(){const box=$('members');box.replaceChildren();$('count').textContent=participants.length+' watching together';participants.forEach(m=>{const row=document.createElement('div');row.className='member';const label=document.createElement('span'),avatar=document.createElement('span');avatar.className='avatar';avatar.textContent=m.name.charAt(0).toUpperCase();label.append(avatar,document.createTextNode(m.name+(m.id===me?' (you)':'')));row.append(label);if(callMembers.includes(m.id)){const status=document.createElement('span');status.className='pill';status.textContent='● In call';row.append(status)}box.append(row)});$('call').textContent=callActive?'In video call':callMembers.length?'Join ongoing call':'Join video call';$('call').disabled=callActive||callJoining}
+function showMembers(){for(const [id,item] of videoTiles){if(id!=='self'){const label=item.tile.querySelector('.tile-label');if(label)label.textContent=participants.find(p=>p.id===id)?.name||'Participant'}}const box=$('members');box.replaceChildren();$('count').textContent=participants.length+' watching together';participants.forEach(m=>{const row=document.createElement('div');row.className='member';const label=document.createElement('span'),avatar=document.createElement('span');avatar.className='avatar';avatar.textContent=m.name.charAt(0).toUpperCase();label.append(avatar,document.createTextNode(m.name+(m.id===me?' (you)':'')));row.append(label);if(callMembers.includes(m.id)){const status=document.createElement('span');status.className='pill';status.textContent='● In call';row.append(status)}box.append(row)});$('call').textContent=callActive?'In video call':callMembers.length?'Join ongoing call':'Join video call';$('call').disabled=callActive||callJoining}
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
 socket.on('call:members',ids=>{callMembers=ids;showMembers();$('callStatus').textContent=callActive?ids.length+' in call':(ids.length?ids.length+' available':'Not in call')});
 function addMessage(m,notify=true){const line=document.createElement('div');line.className='msg',name=document.createElement('b');name.textContent=m.name+': ';line.append(name,document.createTextNode(m.text));$('chat').append(line);$('chat').scrollTop=$('chat').scrollHeight;if(notify&&!chatOpen&&matchMedia('(max-width:850px)').matches){unread=Math.min(99,unread+1);$('unread').textContent=unread;$('unread').classList.remove('hidden')}}
@@ -41,7 +41,7 @@ function playerReadyUI(){clearTimeout(playerTimeout);$('playerFallback').classLi
 function loadYouTubeAPI(){
  if(window.YT&&typeof window.YT.Player==='function'){ytReady=true;initPlayer();return}
  window.onYouTubeIframeAPIReady=()=>{ytReady=true;initPlayer()};
- if(!ytScriptStarted){ytScriptStarted=true;const tag=document.createElement('script');tag.src='https://www.youtube.com/iframe_api';tag.async=true;
+ if(!ytScriptStarted){ytScriptStarted=true;const tag=document.createElement('script');tag.src='https://www.youtube.com/iframe_api';tag.async=true;tag.id='ytApiTag';
   tag.onerror=()=>{ytScriptStarted=false;playerHelp('YouTube failed to load. Check your network or content blocker, then retry.',true)};
   document.head.appendChild(tag)}
  clearTimeout(playerTimeout);
@@ -62,7 +62,7 @@ $('retryPlayer').onclick=()=>{
  if(player){try{player.destroy()}catch{}player=null}
  playerReady=false;const div=document.createElement('div');div.id='player';
  $('videoShell').querySelector('#player')?.remove();$('videoShell').prepend(div);
- playerHelp('Retrying YouTube…');loadYouTubeAPI();
+ if(!ytReady){document.getElementById('ytApiTag')?.remove();ytScriptStarted=false}playerHelp('Retrying YouTube…');loadYouTubeAPI();
 };
 loadYouTubeAPI();
 function sendPlayback(action){if(!playerReady||applying)return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
@@ -85,7 +85,7 @@ function displayTile(id,isLocal=false){
  const tile=document.createElement('div');tile.className='call-tile'+(isLocal?' local':'');
  const video=document.createElement('video');video.autoplay=true;video.playsInline=true;video.muted=isLocal;
  video.setAttribute('playsinline','');video.setAttribute('autoplay','');
- const label=document.createElement('span');label.className='tile-label';label.textContent=isLocal?'You':(participants.find(x=>x.id===id)?.name||'Guest');
+ const label=document.createElement('span');label.className='tile-label';label.textContent=isLocal?'You':(participants.find(x=>x.id===id)?.name||'Participant');
  tile.append(video,label);
  if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=()=>{video.play().catch(()=>toast('Tap again to enable call audio'))}}
  videoTiles.set(id,{tile,video});$('callGrid').append(tile);$('callOverlay').classList.remove('hidden');return video
