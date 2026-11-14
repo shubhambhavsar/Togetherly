@@ -70,9 +70,13 @@ test('fullscreen preserves controls in the same canvas',()=>{
  assert.ok(html.includes('id="callOverlay"'));
  assert.ok(html.includes('id="chatBubble"'));
  const start=html.indexOf('id="videoShell"');
- const end=html.indexOf('id="fullscreenToggle"',start);
+ const end=html.indexOf('class="player-toolbar"',start);
  assert.ok(start>0&&end>start);
+ assert.ok(html.indexOf('id="callOverlay"',start)>start);
  assert.ok(html.indexOf('id="callOverlay"',start)<end);
+ assert.ok(html.indexOf('id="fullscreenToggle"',start)>start);
+ assert.ok(html.indexOf('id="fullscreenToggle"',start)<end);
+ assert.ok(html.indexOf('id="chatBubble"',start)>start);
  assert.ok(html.indexOf('id="chatBubble"',start)<end);
  assert.ok(frontend.includes("fs:0"));
  assert.ok(frontend.includes('theaterShell.requestFullscreen('));
