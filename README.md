@@ -80,3 +80,6 @@ After deploying this release, the service's `/health` endpoint reports `relayCon
 - Video previews no longer show separate Minimize and Expand buttons. Tap the camera tile surface to cycle: **compact preview → minimized camera bubble → enlarged preview → compact preview**. A tap on the minimized bubble continues the cycle. A keyboard user can press Enter or Space on the tile surface.
 - Resizing camera tiles only changes their display. It does **not** mute, stop, or restart microphone/camera streams or interrupt the existing call.
 - These changes are intentionally prepared on a feature branch and require a separate approved merge to production.
+
+## Pending mobile fullscreen compact-controls refinement
+On phone-sized screens, including touch devices in landscape orientation, fullscreen's wide **Exit fullscreen / Chat** pill becomes a small dock with two 44 × 44 px icon-only buttons. Accessible names and unread-message counts remain available. The dock stays above YouTube's own control bar, and the open chat drawer stays clear of the buttons. Desktop retains the labeled controls. This is a stylesheet and markup refinement only; it does not change signaling, video, TURN, or chat delivery logic. Merge only after the user approves deployment.
