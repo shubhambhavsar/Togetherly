@@ -63,36 +63,28 @@ app.get('/api/rtc',async(req,res)=>{
 
 // YouTube Data API searches are optional, quota-limited, and never expose the API key.
 const searchCache=new Map(),searchRates=new Map();
-app.get('/api/search',async(req,res)=>{
- res.set('Cache-Control','private, max-age=0, no-store');
- const key=process.env.YOUTUBE_API_KEY;
- if(!key)return res.status(503).json({error:'Search is not configured yet. Add YOUTUBE_API_KEY in Render to enable it.'});
- if(!allowRtcRequest(req))return res.status(403).json({error:'Join a watch room first'});
- const q=typeof req.query.q==='string'?req.query.q.trim().slice(0,80):'';
- if(q.length<2)return res.status(400).json({error:'Enter at least two characters'});
- const sid=req.query.sid,now=Date.now(),rate=searchRates.get(sid)||{count:0,until:now+3600000};
- if(rate.until<now){rate.count=0;rate.until=now+3600000}
- rate.count++;searchRates.set(sid,rate);
- if(rate.count>15)return res.status(429).json({error:'Search limit reached for now. Try again later.'});
- const cacheKey=q.toLowerCase();
- if(searchCache.has(cacheKey)&&searchCache.get(cacheKey).until>now)return res.json({items:searchCache.get(cacheKey).items});
+const searchBudget={day:'',uses:0};
+async function searchYouTube(q){
+ const now=Date.now(),cacheKey=q.toLowerCase(),saved=searchCache.get(cacheKey);
+ if(saved&&saved.until>now)return saved.items;
+ const day=new Date().toISOString().slice(0,10);
+ if(searchBudget.day!==day){searchBudget.day=day;searchBudget.uses=0}
+ if(searchBudget.uses>=70)throw new Error('Daily free search allowance used. Paste a link or try tomorrow.');
  const url=new URL('https://www.googleapis.com/youtube/v3/search');
- for(const [k,v] of Object.entries({part:'snippet',type:'video',videoEmbeddable:'true',maxResults:'10',safeSearch:'moderate',q,key}))url.searchParams.set(k,v);
- try{
-  const response=await fetch(url,{signal:AbortSignal.timeout(9000)});
-  if(!response.ok){console.warn('YouTube discovery request returned',response.status);return res.status(502).json({error:'YouTube search is temporarily unavailable'})}
-  const body=await response.json();
-  const items=(body.items||[]).filter(x=>/^[A-Za-z0-9_-]{11}$/.test(x.id?.videoId||'')).map(x=>({
-   id:x.id.videoId,
-   title:String(x.snippet?.title||'Untitled video').slice(0,150),
-   channel:String(x.snippet?.channelTitle||'').slice(0,80),
-   thumbnail:x.snippet?.thumbnails?.medium?.url||'',
-  }));
-  if(searchCache.size>150)searchCache.clear();
-  searchCache.set(cacheKey,{items,until:now+10*60*1000});
-  res.json({items});
- }catch(error){console.warn('YouTube search failed:',error.message);res.status(502).json({error:'Could not load search results. Please retry'})}
-});
+ const opts={part:'snippet',type:'video',videoEmbeddable:'true',maxResults:'10',safeSearch:'moderate',q,key:process.env.YOUTUBE_API_KEY};
+ for(const [k,v] of Object.entries(opts))url.searchParams.set(k,v);
+ searchBudget.uses++;
+ const response=await fetch(url,{signal:AbortSignal.timeout(9000)});
+ if(!response.ok){console.warn('YouTube discovery failed:',response.status);throw new Error('YouTube search is unavailable. Try later or use a link.')}
+ const body=await response.json();
+ const items=(body.items||[]).filter(x=>/^[A-Za-z0-9_-]{11}$/.test(x.id?.videoId||'')).map(x=>({
+  id:x.id.videoId,
+  title:String(x.snippet?.title||'Untitled video').slice(0,150),
+  channel:String(x.snippet?.channelTitle||'').slice(0,80)
+ }));
+ if(searchCache.size>120)searchCache.clear();
+ searchCache.set(cacheKey,{items,until:now+10*60*1000});return items;
+}
 app.get('/api/discovery-status',(req,res)=>res.json({searchReady:!!process.env.YOUTUBE_API_KEY}));
 app.get('/room/:id',(_req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 const safeName=x=>typeof x==='string'?x.replace(/[<>\x00-\x1f]/g,'').trim().slice(0,25):'';
@@ -127,6 +119,18 @@ s.on('room:rename',(d,ack)=>{
 });
 s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
+s.on('discover:search',async(d,ack)=>{
+ if(typeof ack!=='function')return;
+ if(!roomOf(s))return ack({error:'Join the watch room before searching'});
+ if(!process.env.YOUTUBE_API_KEY)return ack({error:'In-app search needs a YouTube API key. Use the recent shelf or paste a link for now.'});
+ const q=typeof d?.q==='string'?d.q.trim().slice(0,80):'';
+ if(q.length<2)return ack({error:'Enter at least two characters'});
+ const now=Date.now(),rate=searchRates.get(s.id)||{count:0,until:now+3600000};
+ if(rate.until<now){rate.count=0;rate.until=now+3600000}
+ rate.count++;searchRates.set(s.id,rate);
+ if(rate.count>12)return ack({error:'Search limit reached. Please try later.'});
+ try{ack({items:await searchYouTube(q)})}catch(e){ack({error:e.message})}
+});
 s.on('queue:add',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const id=getVideo(d?.url);if(!id)return ack?.({error:'Enter a valid YouTube video'});
