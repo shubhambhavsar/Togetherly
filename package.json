@@ -6,7 +6,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/smoke.test.js",
+    "prestart": "npm test"
   },
   "dependencies": {
     "express": "^4.21.2",
