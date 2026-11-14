@@ -235,6 +235,12 @@ test('mobile theater dock is compact in portrait and landscape',()=>{
  assert.ok(compact.includes('height:44px!important'),'Each button must have a usable touch target');
  assert.ok(compact.includes('#videoShell.theater-mode #theaterLabel'),'Hide lengthy fullscreen text on mobile');
  assert.ok(compact.includes('.theater-chat-label'),'Hide chat text on mobile');
- assert.ok(compact.includes('max-width:104px!important'),'Mobile dock must stay narrow');
+ assert.ok(compact.includes('flex-direction:column!important'),'The mobile dock must be vertical');
+ assert.ok(compact.includes('right:max(7px,env(safe-area-inset-right))!important'),'Dock must hug the safe right edge');
+ assert.ok(compact.includes('left:auto!important'),'Dock must not be centered');
+ assert.ok(compact.includes('transform:translateY(-50%)!important'),'Dock should align along the right edge');
+ assert.ok(compact.includes('width:50px!important'),'The dock should be slim');
+ assert.ok(compact.includes('height:1px!important'),'Vertical divider should be horizontal');
+ assert.ok(compact.includes('right:max(64px,calc(env(safe-area-inset-right) + 64px))!important'),'Chat must open beside the rail rather than cover it');
  assert.ok(compact.includes('.unread:not(.hidden)'),'Unread count should remain available');
 });
