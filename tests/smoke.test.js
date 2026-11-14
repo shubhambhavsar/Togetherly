@@ -282,3 +282,10 @@ test('mobile fullscreen chat follows visible viewport above the keyboard',()=>{
  assert.ok(css.includes('min-height:0!important'),'Messages must shrink without hiding the composer');
  assert.ok(html.indexOf('/mobile-chat-fix.css?v=1')>html.indexOf('/compact-mobile-dock.css?v=1'),'Keyboard CSS must override dock styles');
 });
+
+test('spectator camera audio unlock does not minimize the video tile',()=>{
+ assert.ok(frontend.includes('video.muted=true'), 'Passive camera playback must start muted for mobile compatibility');
+ assert.ok(frontend.includes('event.stopPropagation()'), 'Unmuting must not trigger camera preview resize');
+ assert.ok(frontend.includes("tileStatus(id,'Tap for audio')"), 'Spectator should see an audio activation hint');
+ assert.ok(frontend.includes("video.play().then(()=>"), 'Audio activation should retry media playback after a gesture');
+});
