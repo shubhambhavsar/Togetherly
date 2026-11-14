@@ -152,7 +152,24 @@ s.on('queue:remove',(d,ack)=>{
 });
 s.on('playback',d=>{const r=roomOf(s);if(!r||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
 s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
-s.on('message',d=>{const r=roomOf(s);if(!r||typeof d?.text!=='string')return;const text=d.text.trim().slice(0,500);if(!text)return;const m={id:randomBytes(6).toString('hex'),name:r.users.get(s.id),text};r.messages.push(m);if(r.messages.length>40)r.messages.shift();io.to(r.id).emit('message',m)});
+function sendChat(d,ack){
+ const r=roomOf(s);
+ if(!r){ack?.({error:'You are not connected to a room'});return}
+ if(typeof d?.text!=='string'){ack?.({error:'Enter a message'});return}
+ const message=d.text.trim().slice(0,500);
+ if(!message){ack?.({error:'Message cannot be empty'});return}
+ const now=Date.now(),previous=s.data.lastChatAt||0;
+ if(now-previous<250){ack?.({error:'Sending too quickly. Try again.'});return}
+ s.data.lastChatAt=now;
+ const m={id:randomBytes(8).toString('hex'),name:r.users.get(s.id),text:message,at:now};
+ r.messages.push(m);if(r.messages.length>80)r.messages.shift();
+ // Existing tabs use the legacy message event; new tabs use chat:new.
+ io.to(r.id).emit('message',m);
+ io.to(r.id).emit('chat:new',m);
+ ack?.({ok:true,id:m.id});
+}
+s.on('chat:send',sendChat);
+s.on('message',sendChat);
 
 s.on('call:join',(data,ack)=>{
  const r=roomOf(s);if(typeof ack!=='function')return;
