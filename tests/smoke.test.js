@@ -105,3 +105,59 @@ test('Blue Hour discovery and spectator controls are present',()=>{
  assert.ok(backend.includes("process.env.YOUTUBE_API_KEY"),'Optional search configuration missing');
  assert.ok(backend.includes("videoEmbeddable:'true'"),'Search must filter for embeddable videos');
 });
+
+test('chat acknowledgments, persistence and validation',async()=>{
+ let connection;const relayed=[];
+ class FakeSocketServer{
+  on(event,fn){if(event==='connection')connection=fn}
+  to(id){return{emit:(event,data)=>relayed.push({id,event,data})}}
+ }
+ const exp=()=>({disable(){},use(){},get(){}});
+ exp.static=()=>()=>{};
+ const fakeRequire=id=>id==='express'?exp:
+ id==='http'?{createServer:()=>({listen(){}})}:
+ id==='socket.io'?{Server:FakeSocketServer}:
+ id==='crypto'?{randomBytes:n=>({toString:()=> 'b'.repeat(n*2)})}:
+ id==='path'?{join:(...a)=>a.join('/')}:
+ require(id);
+ vm.runInNewContext(backend,{
+  require:fakeRequire,process:{env:{PORT:'3000'}},__dirname:'/app',console,
+  setInterval:()=>({unref(){}})
+ },{filename:'server.js'});
+ function client(id){
+  const handlers={};const socket={id,data:{},on:(e,fn)=>handlers[e]=fn,join(){},leave(){},to:()=>({emit:(e,d)=>relayed.push({id:'other',event:e,data:d})})};
+  connection(socket);return{request:(event,data)=>new Promise(resolve=>handlers[event](data,resolve)),fire:(event,data)=>handlers[event](data)}
+ }
+ const a=client('a'),b=client('b');
+ const room=await a.request('create',{name:'Alex'});
+ await b.request('join',{id:room.id,name:'Bea'});
+ const bad=await a.request('chat:send',{text:'  '});
+ assert.match(bad.error,/empty/i);
+ const sent=await a.request('chat:send',{text:'Movie night!'});
+ assert.equal(sent.ok,true);
+ assert.ok(sent.id);
+ assert.ok(relayed.some(x=>x.event==='chat:new'&&x.data.text==='Movie night!'));
+ assert.ok(relayed.some(x=>x.event==='message'&&x.data.text==='Movie night!'));
+ const later=client('c');
+ const history=await later.request('join',{id:room.id,name:'Cam'});
+ assert.equal(history.messages[0].text,'Movie night!');
+});
+test('movie eligibility checks use videos.list and filter blocked regions',()=>{
+ assert.ok(backend.includes("part:'status,contentDetails'"),'Missing secondary detail request');
+ assert.ok(backend.includes("entry?.status?.embeddable===true"),'Missing embedding eligibility check');
+ assert.ok(backend.includes("targets=['CA','IN']"),'Must check Canada and India');
+ assert.ok(backend.includes("eligibility:'unverified'"),'Must label uncertain results honestly');
+ assert.ok(frontend.includes('markUnplayable(lastState?.video)'), 'Remember failed embedded playback');
+ assert.ok(html.includes('id="chooseAnother"'),'Missing fallback to search');
+});
+test('controls and chat are visible in responsive design',()=>{
+ const layout=fs.readFileSync(path.join(root,'public/layout-fixes.css'),'utf8');
+ for(const id of ['toolbarFullscreen','chatSend','chatConnection','chatFeedback'])assert.ok(html.includes('id="'+id+'"'),id+' not found');
+ assert.ok(layout.includes('.room-rail{'),'Desktop rail height is uncontrolled');
+ assert.ok(layout.includes('.conversation-section .chat{'),'Messages not constrained');
+ assert.ok(layout.includes('.toolbar-actions{'),'No dedicated player actions');
+ assert.ok(frontend.includes("socket.timeout(9000).emit('chat:send'"),'Chat needs delivery acknowledgement');
+ assert.ok(frontend.includes("socket.on('chat:new'"),'Chat receiver needs a dedicated event');
+ assert.ok(frontend.includes("if(!socket.connected||!room)"),'Offline sends must not be lost');
+ assert.ok(frontend.includes("$('toolbarFullscreen').onclick=toggleTheater"),'Player fullscreen button not wired');
+});
