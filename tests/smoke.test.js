@@ -50,10 +50,11 @@ test('rooms, queues, two cameras, private spectator access',async()=>{
  assert.ok(relayed.some(x=>x.id==='a'&&x.event==='call:signal'),'Consent allows signaling');
  c.fire('call:signal',{to:'b',data:{description:{type:'offer',sdp:'blocked'}}});
  assert.equal(relayed.some(x=>x.id==='b'&&x.event==='call:signal'),false,'Second camera must give consent independently');
- const queued=await a.ask('queue:add',{url:'M7lc1UVf-VE',title:'Example video'});
+ const queued=await a.ask('queue:add',{url:'M7lc1UVf-VE',title:'Backrooms | horror film X 01'});
  assert.equal(queued.ok,true);
  const queueNotification=relayed.find(x=>x.event==='queue:update'&&x.data.length);
  assert.ok(queueNotification,'Queue update must reach the whole room');
+ assert.equal(queueNotification.data[0].title,'Backrooms | horror film X 01','Queue titles must never drop normal letters or digits');
  const itemId=queueNotification.data[0].id;
  assert.equal((await c.ask('queue:play',{id:itemId})).ok,true);
  assert.ok(relayed.some(x=>x.event==='state'),'Playing queued video should update shared playback state');
@@ -160,4 +161,34 @@ test('controls and chat are visible in responsive design',()=>{
  assert.ok(frontend.includes("socket.on('chat:new'"),'Chat receiver needs a dedicated event');
  assert.ok(frontend.includes("if(!socket.connected||!room)"),'Offline sends must not be lost');
  assert.ok(frontend.includes("$('toolbarFullscreen').onclick=toggleTheater"),'Player fullscreen button not wired');
+});
+
+test('refreshing an invited room auto-joins using a saved nickname, without activating camera',()=>{
+ assert.ok(frontend.includes("else if(roomFromPath&&!autoJoinAttempted&&nickname())"),'Refresh auto-join is missing');
+ assert.ok(frontend.includes("autoJoinAttempted=true"),'Room refresh must not issue repeated joins');
+ assert.ok(frontend.includes("join();"),'Stored name should rejoin without user interaction');
+ assert.ok(frontend.includes("localStorage.getItem('togetherly.nickname')"),'User nickname must be remembered');
+ assert.ok(!frontend.includes("if(roomFromPath){joinCall("),'Never activate camera automatically');
+});
+test('watch interface relies on YouTube controls and shows contextual call actions',()=>{
+ for(const id of ['callEntry','callActiveControls','cameraButtons','call','watchCall','mic','camera','hangup','shareCall','syncLabel'])
+  assert.ok(html.includes('id="'+id+'"'),id+' is missing');
+ for(const obsolete of ['id="play"','id="pause"','id="sync"'])
+  assert.ok(!html.includes(obsolete),obsolete+' is obsolete');
+ assert.ok(frontend.includes("setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')"),'Automatic synchronization missing');
+ assert.ok(frontend.includes("updateCallActions()"),'Contextual call controls not wired');
+ assert.ok(frontend.includes("viewers===0"),'Share-to-spectators action should be hidden without spectators');
+ assert.ok(html.includes('/simplify.css?v=1'),'Updated UI layout stylesheet missing');
+});
+test('friendly queue titles decode entities while preserving source content',()=>{
+ assert.ok(backend.includes(String.raw`/\\u0000-\\u001f<>/` )||backend.includes(String.raw`/[\\u0000-\\u001f<>]/`),'Title sanitizer should only strip control characters');
+ assert.ok(frontend.includes('function humanTitle('),'Missing title entity decoder');
+ assert.ok(frontend.includes("title.textContent=humanTitle(item.title)"),'Queue labels should use decoded titles');
+ assert.ok(frontend.includes("title.title=title.textContent"),'Full queue title should be available on hover');
+ assert.ok(html.includes('/simplify.css?v=1'));
+});
+test('TURN health response indicates configuration presence only',()=>{
+ assert.ok(backend.includes('relayConfigured:Boolean('),'Health endpoint must report relay config presence');
+ assert.ok(backend.includes('METERED_TURN_DOMAIN')&&backend.includes('METERED_TURN_API_KEY'));
+ assert.ok(!backend.includes("res.json({ok:true,relayKey"),'Health response must not leak credentials');
 });
