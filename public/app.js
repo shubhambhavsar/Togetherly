@@ -39,9 +39,7 @@ function showMembers(){
   badge.textContent=role?(role.role==='camera'?'On camera':'Watching call'):'Watching';
   row.append(badge);box.append(row)
  }
- $('call').disabled=callActive||callJoining||cameraMembers().length>=2;
- $('watchCall').disabled=callActive||callJoining;
- $('call').textContent=cameraMembers().length>=2?'Camera seats full':'Join on camera';
+ updateCallActions();
 }
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
 socket.on('call:members',members=>{
@@ -356,6 +354,24 @@ function removePeer(id){
  connections.delete(id);candidateQueues.delete(id);remoteStreams.delete(id);
  videoTiles.get(id)?.tile.remove();videoTiles.delete(id);
 }
+function updateCallActions(){
+ const cameras=cameraMembers().length,viewers=callMembers.filter(m=>m.role==='spectator').length;
+ const active=callActive;
+ $('callEntry').classList.toggle('hidden',active);
+ $('callActiveControls').classList.toggle('hidden',!active);
+ $('cameraButtons').classList.toggle('hidden',!active||callRole!=='camera');
+ $('call').classList.toggle('hidden',active||cameras>=2);
+ $('watchCall').classList.toggle('hidden',active||cameras===0);
+ $('call').disabled=active||callJoining||cameras>=2;
+ $('watchCall').disabled=active||callJoining||cameras===0;
+ $('hangup').textContent=callRole==='spectator'?'Stop watching call':'Hang up';
+ $('shareCall').classList.toggle('hidden',!active||callRole!=='camera'||viewers===0);
+ $('callNote').textContent=active&&callRole==='spectator'
+  ?'You can see only the cameras their owners share. Your own camera and mic are off.'
+  :active&&callRole==='camera'&&viewers>0
+  ?'Other people are watching the movie. Sharing your camera with them is optional.'
+  :'Two people can use cameras. Everyone else can watch the movie and chat.';
+}
 function syncCallDock(){
  $('callBubbleCount').textContent=String(cameraMembers().length||1);
  $('callBubble').classList.toggle('hidden',!callActive||!callMinimized);
@@ -364,16 +380,11 @@ function syncCallDock(){
 }
 function setCallUI(active){
  $('callOverlay').classList.toggle('hidden',!active);
- $('hangup').classList.toggle('hidden',!active);
- $('mic').disabled=!active||callRole!=='camera';$('camera').disabled=!active||callRole!=='camera';$('call').disabled=active||callJoining;
- $('watchCall').disabled=active||callJoining;
- $('shareCall').classList.toggle('hidden',!active||callRole!=='camera');
- updateSharingUI();
- $('mic').textContent='Mute mic';$('camera').textContent='Camera off';
- $('callStatus').textContent=active?(callRole==='spectator'?'Waiting for shared cameras…':'Connecting…'):'No one on camera yet';
- $('hangup').textContent=callRole==='spectator'?'Stop watching call':'Leave call';
- if(!active){callMinimized=false;callRole=null;sharingCall=false;}
- syncCallDock();showMembers();
+ if(!active){callMinimized=false;callRole=null;sharingCall=false}
+ $('mic').textContent='Mute microphone';
+ $('camera').textContent='Turn camera off';
+ $('callStatus').textContent=active?(callRole==='spectator'?'Watching shared cameras':'On camera'):'No one on camera yet';
+ updateSharingUI();syncCallDock();showMembers()
 }
 async function leaveCall(send=true){
  if(send&&socket.connected&&callActive)socket.emit('call:leave');
@@ -477,8 +488,8 @@ $('shareCall').onclick=()=>{
  });
 };
 $('hangup').onclick=()=>leaveCall(true);
-$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute mic':'Unmute mic'};
-$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Camera off':'Camera on'};
+$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
+$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
 $('expandCall').onclick=()=>{$('callOverlay').classList.toggle('expanded');$('expandCall').textContent=$('callOverlay').classList.contains('expanded')?'⤡':'⤢'};
 $('minimizeCall').onclick=()=>{if(!callActive)return;callMinimized=true;syncCallDock()};
 $('callBubble').onclick=()=>{if(!callActive)return;callMinimized=false;syncCallDock()};
