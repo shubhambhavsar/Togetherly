@@ -43,3 +43,21 @@ A camera's consent to spectators is **off by default**. A public invitation link
 - Licensed movies, Vimeo, and protected services (Netflix, Prime, Disney+) aren't embedded in this release; research those separately with permissions and regional rights.
 
 Source: https://github.com/shubhambhavsar/Togetherly
+
+## Pending release: player layout, chat acknowledgments, movie eligibility
+- Theater control now lives in the player toolbar and remains available to exit fullscreen; floating call tiles are positioned lower to avoid video-title overlaps.
+- The desktop room rail has a compact, scrollable message history and always-visible composer; mobile/fullscreen chat remains a bottom sheet.
+- Chat uses `chat:send` and `chat:new` Socket.IO events with delivery acknowledgments. Failed messages stay in the draft field and show an error; legacy clients still receive the old message event during deployment.
+- YouTube discovery additionally checks `videos.list` for `status.embeddable` and public/region access in **Canada and India**. Even an eligible video can still be blocked by platform policy or rights claims. Error 101/150 shows **Find another video** and avoids repeating the same blocked title in the current browser session.
+- YouTube media streams are always served by YouTube directly; Togetherly cannot override an owner's embedding restrictions.
+
+## Metered TURN configuration (optional)
+If you created a credential through https://www.metered.ca/ , keep the actual credential-scoped key **out of GitHub and chat**. In Render → Togetherly → Environment, set:
+```text
+METERED_TURN_DOMAIN=your-app.metered.live
+METERED_TURN_API_KEY=your-credential-scoped-api-key
+```
+Replace `your-app` and the sample key with values from your own Metered dashboard. Do not use the account-wide Secret Key. The server has an existing `/api/rtc` endpoint that fetches the ICE server array on behalf of room participants; **no additional browser snippet is needed**. Render will redeploy after an environment-variable change. The presence of a variable does not prove real-world relay success: test an actual call on different networks and verify relay candidates with Metered's TURN test page. Free quotas may apply.
+
+## Release safety
+Changes in feature branches are not published until merged into `main`. Because Render deploys `main` automatically, merging constitutes deployment.
