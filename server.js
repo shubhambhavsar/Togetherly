@@ -60,6 +60,40 @@ app.get('/api/rtc',async(req,res)=>{
   relayAvailable:iceServers.some(entry=>[].concat(entry.urls).some(u=>u.startsWith('turn:')||u.startsWith('turns:'))),
   relayError});
 });
+
+// YouTube Data API searches are optional, quota-limited, and never expose the API key.
+const searchCache=new Map(),searchRates=new Map();
+app.get('/api/search',async(req,res)=>{
+ res.set('Cache-Control','private, max-age=0, no-store');
+ const key=process.env.YOUTUBE_API_KEY;
+ if(!key)return res.status(503).json({error:'Search is not configured yet. Add YOUTUBE_API_KEY in Render to enable it.'});
+ if(!allowRtcRequest(req))return res.status(403).json({error:'Join a watch room first'});
+ const q=typeof req.query.q==='string'?req.query.q.trim().slice(0,80):'';
+ if(q.length<2)return res.status(400).json({error:'Enter at least two characters'});
+ const sid=req.query.sid,now=Date.now(),rate=searchRates.get(sid)||{count:0,until:now+3600000};
+ if(rate.until<now){rate.count=0;rate.until=now+3600000}
+ rate.count++;searchRates.set(sid,rate);
+ if(rate.count>15)return res.status(429).json({error:'Search limit reached for now. Try again later.'});
+ const cacheKey=q.toLowerCase();
+ if(searchCache.has(cacheKey)&&searchCache.get(cacheKey).until>now)return res.json({items:searchCache.get(cacheKey).items});
+ const url=new URL('https://www.googleapis.com/youtube/v3/search');
+ for(const [k,v] of Object.entries({part:'snippet',type:'video',videoEmbeddable:'true',maxResults:'10',safeSearch:'moderate',q,key}))url.searchParams.set(k,v);
+ try{
+  const response=await fetch(url,{signal:AbortSignal.timeout(9000)});
+  if(!response.ok){console.warn('YouTube discovery request returned',response.status);return res.status(502).json({error:'YouTube search is temporarily unavailable'})}
+  const body=await response.json();
+  const items=(body.items||[]).filter(x=>/^[A-Za-z0-9_-]{11}$/.test(x.id?.videoId||'')).map(x=>({
+   id:x.id.videoId,
+   title:String(x.snippet?.title||'Untitled video').slice(0,150),
+   channel:String(x.snippet?.channelTitle||'').slice(0,80),
+   thumbnail:x.snippet?.thumbnails?.medium?.url||'',
+  }));
+  if(searchCache.size>150)searchCache.clear();
+  searchCache.set(cacheKey,{items,until:now+10*60*1000});
+  res.json({items});
+ }catch(error){console.warn('YouTube search failed:',error.message);res.status(502).json({error:'Could not load search results. Please retry'})}
+});
+app.get('/api/discovery-status',(req,res)=>res.json({searchReady:!!process.env.YOUTUBE_API_KEY}));
 app.get('/room/:id',(_req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 const safeName=x=>typeof x==='string'?x.replace(/[<>\x00-\x1f]/g,'').trim().slice(0,25):'';
 const validRoom=x=>typeof x==='string'&&/^[a-f0-9]{24}$/.test(x);
@@ -69,7 +103,7 @@ const state=r=>({video:r.video,playing:r.playing,position:r.position+(r.playing?
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
 const callMembers=r=>[...r.callUsers].map(([id,meta])=>({id,role:meta.role,sharing:!!meta.sharing}));
 const publishCall=r=>io.to(r.id).emit('call:members',callMembers(r));
-function newRoom(id){return {id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),emptySince:Date.now()}}
+function newRoom(id){return {id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
 setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
 
 function leaveCall(s) {
@@ -81,10 +115,10 @@ function leaveCall(s) {
 }
 function leave(s){leaveCall(s);const r=roomOf(s);if(!r)return;r.users.delete(s.id);s.leave(r.id);s.data.room=null;io.to(r.id).emit('members',members(r));if(!r.users.size)r.emptySince=Date.now()}
 io.on('connection',s=>{
-s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r=newRoom(id);rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[]})});
+s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r=newRoom(id);rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[],queue:[]})});
 s.on('join',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before joining'});let r=validRoom(d?.id)?rooms.get(d.id):null;
  if(!r&&validRoom(d?.id)){r=newRoom(d.id);rooms.set(d.id,r)}
- if(!r)return ack({error:'Invalid room link'});if(r.users.size>=MAX_ROOM_PARTICIPANTS)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:callMembers(r)});io.to(r.id).emit('members',members(r))});
+ if(!r)return ack({error:'Invalid room link'});if(r.users.size>=MAX_ROOM_PARTICIPANTS)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:callMembers(r),queue:r.queue});io.to(r.id).emit('members',members(r))});
 s.on('room:rename',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Not in a room'});
  const newName=safeName(d?.name);if(!newName)return ack?.({error:'Name is required'});
@@ -92,6 +126,26 @@ s.on('room:rename',(d,ack)=>{
  ack?.({ok:true});
 });
 s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+
+s.on('queue:add',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
+ const id=getVideo(d?.url);if(!id)return ack?.({error:'Enter a valid YouTube video'});
+ if(r.queue.length>=20)return ack?.({error:'The queue is full'});
+ const title=typeof d.title==='string'?d.title.trim().replace(/[<>\\x00-\\x1f]/g,'').slice(0,110):'';
+ const item={id:randomBytes(6).toString('hex'),video:id,title:title||'YouTube video',addedBy:r.users.get(s.id)};
+ r.queue.push(item);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true});
+});
+s.on('queue:play',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
+ const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Video not found in queue'});
+ const item=r.queue.splice(i,1)[0];r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
+});
+s.on('queue:remove',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Not in room'});
+ const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Not in queue'});
+ r.queue.splice(i,1);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
+});
 s.on('playback',d=>{const r=roomOf(s);if(!r||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
 s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
 s.on('message',d=>{const r=roomOf(s);if(!r||typeof d?.text!=='string')return;const text=d.text.trim().slice(0,500);if(!text)return;const m={id:randomBytes(6).toString('hex'),name:r.users.get(s.id),text};r.messages.push(m);if(r.messages.length>40)r.messages.shift();io.to(r.id).emit('message',m)});
