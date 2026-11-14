@@ -45,6 +45,10 @@ socket.on('members',m=>{participants=m;showMembers();for(const id of connections
 socket.on('call:members',members=>{
  callMembers=members;syncCallDock();showMembers();
  $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
+ // Recover if a new publisher joined while passive viewers were reconnecting.
+ if(callActive&&callRole==='spectator'){
+  offerAvailableCameras(members.filter(m=>m.role==='camera'&&m.sharing).map(m=>m.id))
+ }
 });
 function addMessage(m,notify=true){
  if(!m||typeof m.text!=='string')return;
