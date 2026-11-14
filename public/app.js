@@ -61,7 +61,7 @@ function addMessage(m,notify=true){
  $('chat').scrollTop=$('chat').scrollHeight;
  if(notify&&!chatOpen&&(theaterActive()||matchMedia('(max-width:850px)').matches)){
   unread=Math.min(99,unread+1);
-  for(const id of ['unread','toolbarUnread']){
+  for(const id of ['toolbarUnread']){
     $(id).textContent=String(unread);$(id).classList.remove('hidden')
   }
  }
@@ -118,7 +118,7 @@ function createResult(item){
  const title=document.createElement('div');title.className='video-result-title';title.textContent=humanTitle(clip(item.title,150));
  const channel=document.createElement('div');channel.className='video-result-channel';
  const blocked=unplayableVideos.has(item.id);
- channel.textContent=blocked?'Unavailable on this device':clip(item.channel||'YouTube',80)+(item.eligibility==='unverified'?' · Embedding unverified':'');
+ channel.textContent=blocked?'This video is not available':clip(item.channel||'YouTube',80);
  const actions=document.createElement('div');actions.className='video-result-actions';
  const play=document.createElement('button');play.className='primary-button small';play.textContent=blocked?'Unavailable':'Watch now';play.disabled=blocked;
  play.onclick=()=>{
@@ -139,7 +139,7 @@ async function openExplore(){
  $('discoverModal').classList.remove('hidden');document.body.classList.add('modal-lock');renderRecent();
  setTimeout(()=>$('discoverInput').focus(),60);
  try{const res=await fetch('/api/discovery-status');searchReady=!!(await res.json()).searchReady}catch{searchReady=false}
- $('searchHint').textContent=searchReady?'Find embeddable videos directly from YouTube.':'YouTube search needs an API key. You can still use recent videos, the shared queue, or browse YouTube and use the Paste button.';
+ $('searchHint').textContent=searchReady?'':'YouTube search needs an API key. You can still use recent videos, the shared queue, or paste a YouTube link.';
 }
 function closeExplore(){
  $('discoverModal').classList.add('hidden');document.body.classList.remove('modal-lock');
@@ -164,7 +164,7 @@ $('discoverForm').onsubmit=async e=>{
   });
   const results=$('discoverResults');results.replaceChildren();
   for(const item of data.items||[])results.append(createResult(item));
-  $('searchHint').textContent=(data.items||[]).length?'Prechecked for embedding and Canada/India availability. Rights claims can still block playback.':'No verified embeddable results. Try official channels, short films, or documentaries.';
+  $('searchHint').textContent=(data.items||[]).length?'':'No available videos found. Try another search.';
  }catch(err){$('searchHint').textContent=err.message}
  finally{searching=false}
 };
@@ -218,22 +218,19 @@ function updateChatViewport(){
  theaterShell.classList.toggle('chat-typing',typing);
 }
 function toggleChat(show){
+ if(show&&theaterActive())return;
  chatOpen=Boolean(show);
  $('chatPanel').classList.toggle('chat-open',chatOpen);
- for(const id of ['chatBubble','toolbarChat']){
-  $(id).setAttribute('aria-expanded',String(chatOpen));
-  $(id).setAttribute('aria-label',chatOpen?'Close chat':'Open chat');
- }
+ $('toolbarChat').setAttribute('aria-expanded',String(chatOpen));
+ $('toolbarChat').setAttribute('aria-label',chatOpen?'Close chat':'Open chat');
  if(chatOpen){
   unread=0;
-  $('unread').classList.add('hidden');
   $('toolbarUnread').classList.add('hidden');
   // On mobile, opening messages must not automatically summon the keyboard.
   if(!theaterActive()&&!matchMedia('(max-width:860px)').matches)setTimeout(()=>$('chatText').focus(),50)
  }else if(document.activeElement===$('chatText'))$('chatText').blur();
  updateChatViewport()
 }
-$('chatBubble').onclick=()=>toggleChat(!chatOpen);
 $('toolbarChat').onclick=()=>toggleChat(!chatOpen);
 $('closeChat').onclick=()=>toggleChat(false);
 $('chatText').addEventListener('focus',updateChatViewport);
@@ -248,13 +245,8 @@ document.addEventListener('keydown',e=>{
  if(theaterFallback){theaterFallback=false;updateTheaterUI()}
 });
 
-// A fullscreen YouTube iframe hides every sibling overlay. Fullscreen Togetherly's
-// containing element instead so the call tiles and chat remain in the same top layer.
+// Fullscreen the video canvas only. Chat stays outside, available after leaving fullscreen.
 const theaterShell=$('videoShell');
-const theaterChat=$('chatPanel');
-const theaterHome=theaterChat.parentNode;
-const theaterAnchor=document.createComment('Restore chat here after theater');
-theaterHome.insertBefore(theaterAnchor,theaterChat);
 let theaterFallback=false;
 function theaterActive(){return document.fullscreenElement===theaterShell||theaterFallback}
 function updateTheaterUI(){
@@ -266,12 +258,7 @@ function updateTheaterUI(){
  $('fullscreenToggle').setAttribute('aria-label',active?'Exit watch fullscreen':'Enter watch fullscreen');
  $('toolbarFullscreen').setAttribute('aria-pressed',String(active));
  $('theaterLabel').textContent=active?'Exit fullscreen':'Fullscreen';
- if(active){
-  if(theaterChat.parentNode!==theaterShell)theaterShell.appendChild(theaterChat);
- }else{
-  if(chatOpen)toggleChat(false);
-  if(theaterChat.parentNode!==theaterHome)theaterAnchor.after(theaterChat);
- }
+ if(active&&chatOpen)toggleChat(false);
  updateChatViewport();
 }
 async function toggleTheater(){
@@ -281,8 +268,8 @@ async function toggleTheater(){
   }else theaterFallback=false;
   updateTheaterUI();return;
  }
- // Place chat within the fullscreen element before the browser changes top layers.
- theaterShell.appendChild(theaterChat);
+ // The chat panel intentionally stays outside fullscreen and never opens over the movie.
+ if(chatOpen)toggleChat(false);
  // iPhone Safari does not reliably support requestFullscreen on ordinary elements.
  if(typeof theaterShell.requestFullscreen==='function'&&document.fullscreenEnabled){
   try{
@@ -326,10 +313,10 @@ function initPlayer(){
   onStateChange:e=>{if(applying||!room||!playerReady)return;if(e.data===YT.PlayerState.PLAYING)sendPlayback('play');else if(e.data===YT.PlayerState.PAUSED)sendPlayback('pause')},
   onAutoplayBlocked:()=>notice('Your browser blocked autoplay. Tap the YouTube player to start.'),
   onError:e=>{
-   const reasons={2:'Invalid video ID',5:'YouTube playback error',100:'Video unavailable or private',101:'Video owner disabled embedding',150:'Video owner disabled embedding',153:'YouTube requires referring website identification'};
    const blocked=[100,101,150].includes(e.data);
    if(blocked)markUnplayable(lastState?.video);
-   playerHelp((reasons[e.data]||'YouTube playback failed')+' (error '+e.data+'). This title cannot play here. Choose another video.',true);
+   console.warn('YouTube embedded playback failed',e.data);
+   playerHelp('This video is not available. Choose something else.',true);
    $('chooseAnother').classList.remove('hidden');
    if(blocked)$('retryPlayer').classList.add('hidden');
   }
