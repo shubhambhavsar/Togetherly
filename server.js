@@ -204,8 +204,12 @@ s.on('call:join',(data,ack)=>{
  if(!r)return ack({error:'Join the room first'});
  const role=data?.role==='camera'?'camera':'spectator';
  const previous=r.callUsers.get(s.id);
- if(previous?.role==='camera'||(previous&&role==='spectator'))return ack({error:'Already connected'});
+ if(previous?.role==='camera')return ack({error:'Already on camera'});
  const cameras=[...r.callUsers].filter(([,meta])=>meta.role==='camera');
+ // Harmless repeat subscriptions can happen when a mobile network reconnects.
+ if(previous?.role==='spectator'&&role==='spectator'){
+  return ack({role,peers:cameras.filter(([,meta])=>meta.sharing).map(([id])=>id),callMembers:callMembers(r)});
+ }
  if(role==='camera'&&cameras.length>=MAX_CAMERA_PARTICIPANTS)return ack({error:'Both camera seats are in use',code:'CAMERAS_FULL'});
  const peers=role==='camera'
  ?cameras.map(([id])=>id)
