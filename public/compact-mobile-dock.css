@@ -1,26 +1,33 @@
-/* Small, thumb-friendly controls in fullscreen on mobile.
-   Keep text accessible via the existing button labels; show only icons visually.
-   Includes phones in landscape mode, whose CSS width can exceed 600px. */
+/* Mobile theater: two small accessible controls on the RIGHT edge, vertically stacked.
+   Keep them away from the centered YouTube playback area and upper-right camera tiles.
+   Phones in landscape receive the same side rail. Desktop remains unchanged. */
 @media (max-width:600px), (pointer:coarse) and (max-width:1100px), (max-height:480px) and (max-width:1100px) {
   #videoShell.theater-mode .theater-dock {
-    width:auto!important;
-    max-width:104px!important;
-    min-width:0!important;
-    left:50%!important;
-    right:auto!important;
-    bottom:max(76px,calc(env(safe-area-inset-bottom) + 66px))!important;
-    transform:translateX(-50%)!important;
-    border-radius:30px!important;
+    display:flex!important;
+    flex-direction:column!important;
+    position:absolute!important;
+    top:52%!important;
+    bottom:auto!important;
+    left:auto!important;
+    right:max(7px,env(safe-area-inset-right))!important;
+    transform:translateY(-50%)!important;
+    width:50px!important;
+    min-width:50px!important;
+    max-width:50px!important;
     padding:3px!important;
     gap:0!important;
-    border:1px solid rgba(176,203,220,.3)!important;
+    border-radius:28px!important;
     background:rgba(12,24,37,.82)!important;
+    border:1px solid rgba(176,203,220,.3)!important;
     box-shadow:0 4px 18px #0007!important;
     backdrop-filter:blur(10px);
     -webkit-backdrop-filter:blur(10px);
+    z-index:70!important;
   }
   #videoShell.theater-mode #fullscreenToggle,
   #videoShell.theater-mode #chatBubble {
+    display:inline-flex!important;
+    position:relative!important;
     width:44px!important;
     height:44px!important;
     min-width:44px!important;
@@ -46,33 +53,44 @@
     flex:0 0 19px!important;
   }
   #videoShell.theater-mode .theater-dock-divider {
-    height:19px!important;
-    margin:0 1px!important;
+    width:22px!important;
+    height:1px!important;
+    margin:1px 0!important;
     flex:0 0 1px!important;
     background:rgba(174,200,220,.3)!important;
   }
   #videoShell.theater-mode #chatBubble .unread:not(.hidden) {
-    position:absolute;
-    top:0px;
-    right:0px;
+    display:inline-flex!important;
+    position:absolute!important;
+    top:0px!important;
+    right:0px!important;
     font-size:10px!important;
     line-height:15px!important;
-    height:16px;
-    min-width:16px;
-    padding:0 3px;
+    height:16px!important;
+    min-width:16px!important;
+    padding:0 3px!important;
     margin:0!important;
     z-index:1;
   }
+  /* Chat opens to the LEFT of the right-edge rail so its controls remain available. */
   #videoShell.theater-mode #chatPanel.chat-open {
-    bottom:max(135px,calc(env(safe-area-inset-bottom) + 126px))!important;
+    display:flex!important;
+    top:auto!important;
+    bottom:max(8px,env(safe-area-inset-bottom))!important;
+    left:max(8px,env(safe-area-inset-left))!important;
+    right:max(64px,calc(env(safe-area-inset-right) + 64px))!important;
+    width:auto!important;
+    max-width:420px!important;
+    max-height:min(69dvh,420px)!important;
+    box-sizing:border-box!important;
+    overflow:hidden!important;
   }
 }
 @media (max-height:420px) and (max-width:1100px) {
   #videoShell.theater-mode .theater-dock {
-    bottom:max(65px,calc(env(safe-area-inset-bottom) + 57px))!important;
+    top:50%!important;
   }
   #videoShell.theater-mode #chatPanel.chat-open {
-    max-height:min(58dvh,250px)!important;
-    bottom:max(114px,calc(env(safe-area-inset-bottom) + 100px))!important;
+    max-height:min(76dvh,260px)!important;
   }
 }
