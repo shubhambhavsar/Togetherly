@@ -54,3 +54,22 @@ test('room names and group-call signaling',async()=>{
  b.fire('call:leave');
  assert.ok(relayed.some(x=>x.event==='call:peer-left'));
 });
+
+test('theater fullscreen keeps video-call and chat in the same canvas',()=>{
+ assert.ok(html.includes('id="fullscreenToggle"'));
+ assert.ok(html.includes('id="videoShell"'));
+ assert.ok(html.includes('id="callOverlay"'));
+ assert.ok(html.includes('id="chatBubble"'));
+ const shellStart=html.indexOf('id="videoShell"');
+ const panelEnd=html.indexOf('</div><div class="bar"',shellStart);
+ assert.ok(shellStart>0&&panelEnd>shellStart);
+ assert.ok(html.indexOf('id="callOverlay"',shellStart)<panelEnd);
+ assert.ok(html.indexOf('id="chatBubble"',shellStart)<panelEnd);
+ assert.ok(frontend.includes("fs:0"),'YouTube native fullscreen must be hidden');
+ assert.ok(frontend.includes('theaterShell.requestFullscreen('),'Fullscreen the wrapper');
+ assert.ok(frontend.includes('theaterShell.appendChild(theaterChat)'),'Move chat into fullscreen subtree');
+ assert.ok(frontend.includes('theaterAnchor.after(theaterChat)'),'Restore chat when exiting');
+ assert.ok(frontend.includes("theaterFallback=true"),'Fallback for unsupported mobile browsers');
+ assert.ok(html.includes('.video-shell.pseudo-fullscreen'));
+ assert.ok(html.includes('.video-shell.theater-mode #chatPanel.chat-open'));
+});
