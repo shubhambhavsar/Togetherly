@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 const socket=io({reconnection:true,reconnectionDelay:500});
 const roomFromPath=location.pathname.match(/^\/room\/([a-f0-9]{24})$/)?.[1];
 let room=null,me=null,participants=[],player=null,playerReady=false,ytReady=false,applying=false,lastState=null,version=0;
-let roomQueue=[],searchReady=false,searching=false;
+let roomQueue=[],searchReady=false,searching=false,autoJoinAttempted=false;
 const displayedChatIds=new Set(),unplayableVideos=new Set();
 try{for(const id of JSON.parse(sessionStorage.getItem('togetherly.unplayable')||'[]'))if(/^[\w-]{11}$/.test(id))unplayableVideos.add(id)}catch{}
 function markUnplayable(id){if(!id||!/^[\w-]{11}$/.test(id))return;unplayableVideos.add(id);try{sessionStorage.setItem('togetherly.unplayable',JSON.stringify([...unplayableVideos].slice(-50)))}catch{}}
@@ -39,9 +39,7 @@ function showMembers(){
   badge.textContent=role?(role.role==='camera'?'On camera':'Watching call'):'Watching';
   row.append(badge);box.append(row)
  }
- $('call').disabled=callActive||callJoining||cameraMembers().length>=2;
- $('watchCall').disabled=callActive||callJoining;
- $('call').textContent=cameraMembers().length>=2?'Camera seats full':'Join on camera';
+ updateCallActions();
 }
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
 socket.on('call:members',members=>{
@@ -68,6 +66,16 @@ socket.on('chat:new',m=>addMessage(m));
 
 socket.on('queue:update',items=>{roomQueue=Array.isArray(items)?items:[];renderQueue()});
 function clip(text,n=100){return String(text||'').slice(0,n)}
+function humanTitle(text){
+ const map={amp:'&',quot:'"',apos:"'",lt:'<',gt:'>',nbsp:' ',hellip:'…'};
+ return String(text||'').replace(/&(#x[0-9a-f]+|#\d+|amp|quot|apos|lt|gt|nbsp|hellip);/gi,(_full,entity)=>{
+  if(entity[0]==='#'){
+   const n=entity[1].toLowerCase()==='x'?parseInt(entity.slice(2),16):parseInt(entity.slice(1),10);
+   return Number.isInteger(n)&&n>0&&n<=0x10ffff&&!(n>=0xd800&&n<=0xdfff)?String.fromCodePoint(n):'';
+  }
+  return map[entity.toLowerCase()]??_full;
+ }).replace(/\s+/g,' ').trim();
+}
 function renderQueue(){
  $('queueCount').textContent=String(roomQueue.length);
  const parent=$('queueList');parent.replaceChildren();
@@ -76,21 +84,25 @@ function renderQueue(){
   const row=document.createElement('div');row.className='queue-item';
   const count=document.createElement('span');count.className='queue-number';count.textContent=String(index+1).padStart(2,'0');
   const info=document.createElement('div');info.className='queue-info';
-  const title=document.createElement('div');title.className='queue-title';title.textContent=clip(item.title,100);
+  const title=document.createElement('div');title.className='queue-title';
+  title.textContent=humanTitle(item.title)||'YouTube video';title.title=title.textContent;
   const by=document.createElement('div');by.className='queue-sub';by.textContent='Added by '+clip(item.addedBy,25);
   info.append(title,by);
   const play=document.createElement('button');play.className='secondary-button small';play.textContent='Play';
   play.onclick=()=>socket.emit('queue:play',{id:item.id},res=>{if(res?.error)toast(res.error)});
   const remove=document.createElement('button');remove.className='text-button';remove.title='Remove from queue';remove.setAttribute('aria-label','Remove '+clip(item.title)+' from queue');remove.textContent='✕';
   remove.onclick=()=>socket.emit('queue:remove',{id:item.id},res=>{if(res?.error)toast(res.error)});
-  row.append(count,info,play,remove);parent.append(row)
+  if(/^[\w-]{11}$/.test(item.video||'')){
+   const thumb=document.createElement('img');thumb.className='queue-thumb';thumb.src=youtubeThumbnail(item.video);thumb.alt='';thumb.loading='lazy';row.append(count,thumb,info,play,remove)
+  }else row.append(count,info,play,remove);
+  parent.append(row)
  })
 }
 function getRecents(){try{return JSON.parse(localStorage.getItem('togetherly.recents')||'[]').filter(x=>/^[\w-]{11}$/.test(x.id)).slice(0,10)}catch{return []}}
 function saveRecent(item){
  if(!item?.id||!/^[\w-]{11}$/.test(item.id)||item.id==='M7lc1UVf-VE')return;
  const existing=getRecents().filter(x=>x.id!==item.id);
- existing.unshift({id:item.id,title:clip(item.title||'YouTube video',100),channel:clip(item.channel||'',70)});
+ existing.unshift({id:item.id,title:humanTitle(clip(item.title||'YouTube video',140)),channel:clip(item.channel||'',70)});
  try{localStorage.setItem('togetherly.recents',JSON.stringify(existing.slice(0,10)))}catch{}
  renderRecent()
 }
@@ -99,7 +111,7 @@ function createResult(item){
  const row=document.createElement('div');row.className='video-result';
  const img=document.createElement('img');img.src=youtubeThumbnail(item.id);img.loading='lazy';img.alt='';
  const body=document.createElement('div');body.className='video-result-content';
- const title=document.createElement('div');title.className='video-result-title';title.textContent=clip(item.title,150);
+ const title=document.createElement('div');title.className='video-result-title';title.textContent=humanTitle(clip(item.title,150));
  const channel=document.createElement('div');channel.className='video-result-channel';
  const blocked=unplayableVideos.has(item.id);
  channel.textContent=blocked?'Unavailable on this device':clip(item.channel||'YouTube',80)+(item.eligibility==='unverified'?' · Embedding unverified':'');
@@ -110,7 +122,7 @@ function createResult(item){
   socket.emit('video',{url},result=>{if(result?.error)return toast(result.error);saveRecent(item);closeExplore()})
  };
  const queue=document.createElement('button');queue.className='secondary-button small';queue.textContent='+ Queue';queue.disabled=blocked;
- queue.onclick=()=>socket.emit('queue:add',{url:item.id,title:item.title},result=>{if(result?.error)return toast(result.error);saveRecent(item);toast('Added to the watch queue')});
+ queue.onclick=()=>socket.emit('queue:add',{url:item.id,title:humanTitle(item.title)},result=>{if(result?.error)return toast(result.error);saveRecent(item);toast('Added to the watch queue')});
  actions.append(play,queue);body.append(title,channel,actions);row.append(img,body);return row
 }
 function renderRecent(){
@@ -295,14 +307,31 @@ $('retryPlayer').onclick=()=>{
 };
 loadYouTubeAPI();
 function sendPlayback(action){if(!playerReady||applying)return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
-function applyState(s){if(!s)return;const old=lastState;lastState=s;version=s.version;if(old?.video!==s.video)saveRecent({id:s.video,title:'YouTube video'});$('videoURL').value='https://www.youtube.com/watch?v='+s.video;$('youtubeLink').href=$('videoURL').value;if(!playerReady)return;applying=true;try{const video=player.getVideoData()?.video_id;if(video!==s.video){playerReadyUI();player.cueVideoById(s.video,s.position);notice('New video ready. Tap Play if your browser blocks autoplay.')}else{const t=player.getCurrentTime();if(Math.abs(t-s.position)>2.5)player.seekTo(s.position,true);const status=player.getPlayerState();if(s.playing&&status!==YT.PlayerState.PLAYING)player.playVideo();else if(!s.playing&&status===YT.PlayerState.PLAYING)player.pauseVideo()}$('syncLabel').textContent='In sync';if(old?.video!==s.video)$('videoURL').value='https://www.youtube.com/watch?v='+s.video}catch(e){console.warn('Player sync:',e)}finally{setTimeout(()=>applying=false,850)}}
+function applyState(s){if(!s)return;const old=lastState;lastState=s;version=s.version;if(old?.video!==s.video)saveRecent({id:s.video,title:'YouTube video'});$('videoURL').value='https://www.youtube.com/watch?v='+s.video;$('youtubeLink').href=$('videoURL').value;if(!playerReady)return;applying=true;try{const video=player.getVideoData()?.video_id;if(video!==s.video){playerReadyUI();player.cueVideoById(s.video,s.position);notice('New video ready. Tap Play if your browser blocks autoplay.')}else{const t=player.getCurrentTime();if(Math.abs(t-s.position)>2.5)player.seekTo(s.position,true);const status=player.getPlayerState();if(s.playing&&status!==YT.PlayerState.PLAYING)player.playVideo();else if(!s.playing&&status===YT.PlayerState.PLAYING)player.pauseVideo()}$('syncLabel').textContent='Auto-sync on';if(old?.video!==s.video)$('videoURL').value='https://www.youtube.com/watch?v='+s.video}catch(e){console.warn('Player sync:',e)}finally{setTimeout(()=>applying=false,850)}}
 socket.on('state',applyState);
-$('play').onclick=()=>{if(playerReady){player.playVideo();sendPlayback('play')}};
-$('pause').onclick=()=>{if(playerReady){player.pauseVideo();sendPlayback('pause')}};
-$('sync').onclick=()=>socket.emit('sync');
+// YouTube's own playback controls are the source of truth; keep synchronization automatic.
 setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')},22000);
-socket.on('connect',()=>{me=socket.id;updateChatConnection();if(room){leaveCall(false);socket.emit('join',{id:room,name:currentName||nickname()},d=>{if(d?.error){toast(d.error);notice('Room expired. Please create a new room.');return}lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();showMembers();updateChatConnection();socket.emit('sync');notice('Reconnected. Rejoin your video call if needed.')})}});
-socket.on('disconnect',()=>{notice('Connection lost. Trying to reconnect…');updateChatConnection();leaveCall(false)});
+socket.on('connect',()=>{
+ me=socket.id;updateChatConnection();
+ if(room){
+  leaveCall(false);
+  socket.emit('join',{id:room,name:currentName||nickname()},d=>{
+   if(d?.error){toast(d.error);notice('Could not rejoin room. Try opening the invitation link again.');return}
+   lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];
+   roomQueue=d.queue||[];renderQueue();showMembers();updateChatConnection();socket.emit('sync');
+   notice('Reconnected. Join the camera call again when ready.');
+  });
+ }else if(roomFromPath&&!autoJoinAttempted&&nickname()){
+  // Room links are persistent and the nickname is saved locally. Never auto-start camera/mic.
+  autoJoinAttempted=true;
+  join();
+ }
+});
+socket.on('disconnect',()=>{
+ notice('Connection lost. Trying to reconnect…');
+ $('syncLabel').textContent='Reconnecting…';
+ updateChatConnection();leaveCall(false)
+});
 async function getMedia(){
  if(localStream&&localStream.active)return localStream;
  if(!navigator.mediaDevices?.getUserMedia)throw Error('Camera and microphone need HTTPS and a compatible browser');
@@ -325,6 +354,24 @@ function removePeer(id){
  connections.delete(id);candidateQueues.delete(id);remoteStreams.delete(id);
  videoTiles.get(id)?.tile.remove();videoTiles.delete(id);
 }
+function updateCallActions(){
+ const cameras=cameraMembers().length,viewers=callMembers.filter(m=>m.role==='spectator').length;
+ const active=callActive;
+ $('callEntry').classList.toggle('hidden',active);
+ $('callActiveControls').classList.toggle('hidden',!active);
+ $('cameraButtons').classList.toggle('hidden',!active||callRole!=='camera');
+ $('call').classList.toggle('hidden',active||cameras>=2);
+ $('watchCall').classList.toggle('hidden',active||cameras===0);
+ $('call').disabled=active||callJoining||cameras>=2;
+ $('watchCall').disabled=active||callJoining||cameras===0;
+ $('hangup').textContent=callRole==='spectator'?'Stop watching call':'Hang up';
+ $('shareCall').classList.toggle('hidden',!active||callRole!=='camera'||viewers===0);
+ $('callNote').textContent=active&&callRole==='spectator'
+  ?'You can see only the cameras their owners share. Your own camera and mic are off.'
+  :active&&callRole==='camera'&&viewers>0
+  ?'Other people are watching the movie. Sharing your camera with them is optional.'
+  :'Two people can use cameras. Everyone else can watch the movie and chat.';
+}
 function syncCallDock(){
  $('callBubbleCount').textContent=String(cameraMembers().length||1);
  $('callBubble').classList.toggle('hidden',!callActive||!callMinimized);
@@ -333,16 +380,11 @@ function syncCallDock(){
 }
 function setCallUI(active){
  $('callOverlay').classList.toggle('hidden',!active);
- $('hangup').classList.toggle('hidden',!active);
- $('mic').disabled=!active||callRole!=='camera';$('camera').disabled=!active||callRole!=='camera';$('call').disabled=active||callJoining;
- $('watchCall').disabled=active||callJoining;
- $('shareCall').classList.toggle('hidden',!active||callRole!=='camera');
- updateSharingUI();
- $('mic').textContent='Mute mic';$('camera').textContent='Camera off';
- $('callStatus').textContent=active?(callRole==='spectator'?'Waiting for shared cameras…':'Connecting…'):'No one on camera yet';
- $('hangup').textContent=callRole==='spectator'?'Stop watching call':'Leave call';
- if(!active){callMinimized=false;callRole=null;sharingCall=false;}
- syncCallDock();showMembers();
+ if(!active){callMinimized=false;callRole=null;sharingCall=false}
+ $('mic').textContent='Mute microphone';
+ $('camera').textContent='Turn camera off';
+ $('callStatus').textContent=active?(callRole==='spectator'?'Watching shared cameras':'On camera'):'No one on camera yet';
+ updateSharingUI();syncCallDock();showMembers()
 }
 async function leaveCall(send=true){
  if(send&&socket.connected&&callActive)socket.emit('call:leave');
@@ -446,8 +488,8 @@ $('shareCall').onclick=()=>{
  });
 };
 $('hangup').onclick=()=>leaveCall(true);
-$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute mic':'Unmute mic'};
-$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Camera off':'Camera on'};
+$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
+$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
 $('expandCall').onclick=()=>{$('callOverlay').classList.toggle('expanded');$('expandCall').textContent=$('callOverlay').classList.contains('expanded')?'⤡':'⤢'};
 $('minimizeCall').onclick=()=>{if(!callActive)return;callMinimized=true;syncCallDock()};
 $('callBubble').onclick=()=>{if(!callActive)return;callMinimized=false;syncCallDock()};
