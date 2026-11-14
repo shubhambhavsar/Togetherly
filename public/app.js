@@ -20,7 +20,7 @@ function nickname(){return $('name').value.trim().slice(0,25)}
 function saveName(n){currentName=n;$('name').value=n;try{localStorage.setItem('togetherly.nickname',n)}catch{}}
 function requireName(){const n=nickname();if(!n){toast('Enter your name before joining');$('name').focus();return null}saveName(n);return n}
 $('rename').onclick=()=>{if(!room)return;const v=prompt('What name should others see?',currentName||nickname());if(v===null)return;const n=v.trim().slice(0,25);if(!n)return toast('Name cannot be empty');socket.emit('room:rename',{name:n},result=>{if(result?.ok){saveName(n);toast('Name updated')}else toast(result?.error||'Could not update name')})};
-function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();initPlayer()}
+function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();initPlayer();startSpectatorView()}
 function create(){const n=requireName();if(!n)return;socket.emit('create',{name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFromPath||room,name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
@@ -36,7 +36,7 @@ function showMembers(){
   avatar.className='avatar';avatar.textContent=m.name.charAt(0).toUpperCase();
   label.append(avatar,document.createTextNode(m.name+(m.id===me?' (you)':'')));row.append(label);
   const role=callUser(m.id),badge=document.createElement('span');badge.className='pill';
-  badge.textContent=role?(role.role==='camera'?'On camera':'Watching call'):'Watching';
+  badge.textContent=role?.role==='camera'?'On camera':'Watching';
   row.append(badge);box.append(row)
  }
  updateCallActions();
@@ -44,10 +44,7 @@ function showMembers(){
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
 socket.on('call:members',members=>{
  callMembers=members;syncCallDock();showMembers();
- if(!callActive)$('callStatus').textContent=cameraMembers().length?'Camera call in progress':'No one on camera yet';
- else if(callRole==='spectator')$('callStatus').textContent='Watching the call';
- else $('callStatus').textContent='On camera';
- const mine=callUser(me);if(mine?.role==='camera'){sharingCall=!!mine.sharing;updateSharingUI()}
+ $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
 });
 function addMessage(m,notify=true){
  if(!m||typeof m.text!=='string')return;
@@ -337,7 +334,7 @@ socket.on('connect',()=>{
    if(d?.error){toast(d.error);notice('Could not rejoin room. Try opening the invitation link again.');return}
    lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];
    roomQueue=d.queue||[];renderQueue();showMembers();updateChatConnection();socket.emit('sync');
-   notice('Reconnected. Join the camera call again when ready.');
+   startSpectatorView();notice('Reconnected to your room.');
   });
  }else if(roomFromPath&&!autoJoinAttempted&&nickname()){
   // Room links are persistent and the nickname is saved locally. Never auto-start camera/mic.
@@ -363,7 +360,12 @@ function displayTile(id,isLocal=false){
  video.setAttribute('playsinline','');video.setAttribute('autoplay','');
  const label=document.createElement('span');label.className='tile-label';label.textContent=isLocal?'You':(participants.find(x=>x.id===id)?.name||'Participant');
  tile.append(video,label);
- if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=()=>{video.play().catch(()=>toast('Tap again to enable call audio'))}}
+ if(!isLocal){const state=document.createElement('span');state.className='tile-status';state.textContent='Connecting…';tile.append(state);tile.onclick=()=>{
+   if(callRole==='spectator'&&video.muted){
+    video.muted=false;
+    video.play().then(()=>tileStatus(id,'')).catch(()=>{video.muted=true;toast('Audio is blocked by your browser. Try again.')});
+   }else video.play().catch(()=>{});
+  }}
  videoTiles.set(id,{tile,video});$('callGrid').append(tile);$('callOverlay').classList.remove('hidden');return video
 }
 function tileStatus(id,msg){const node=videoTiles.get(id)?.tile.querySelector('.tile-status');if(node)node.textContent=msg}
@@ -373,22 +375,18 @@ function removePeer(id){
  videoTiles.get(id)?.tile.remove();videoTiles.delete(id);
 }
 function updateCallActions(){
- const cameras=cameraMembers().length,viewers=callMembers.filter(m=>m.role==='spectator').length;
- const active=callActive;
- $('callEntry').classList.toggle('hidden',active);
- $('callActiveControls').classList.toggle('hidden',!active);
- $('cameraButtons').classList.toggle('hidden',!active||callRole!=='camera');
- $('call').classList.toggle('hidden',active||cameras>=2);
- $('watchCall').classList.toggle('hidden',active||cameras===0);
- $('call').disabled=active||callJoining||cameras>=2;
- $('watchCall').disabled=active||callJoining||cameras===0;
- $('hangup').textContent=callRole==='spectator'?'Stop watching call':'Hang up';
- $('shareCall').classList.toggle('hidden',!active||callRole!=='camera'||viewers===0);
- $('callNote').textContent=active&&callRole==='spectator'
-  ?'You can see only the cameras their owners share. Your own camera and mic are off.'
-  :active&&callRole==='camera'&&viewers>0
-  ?'Other people are watching the movie. Sharing your camera with them is optional.'
-  :'Two people can use cameras. Everyone else can watch the movie and chat.';
+ const cameras=cameraMembers().length;
+ const onCamera=callActive&&callRole==='camera';
+ $('callEntry').classList.toggle('hidden',onCamera||cameras>=2);
+ $('callActiveControls').classList.toggle('hidden',!onCamera);
+ $('cameraButtons').classList.toggle('hidden',!onCamera);
+ $('call').classList.toggle('hidden',onCamera||cameras>=2);
+ $('call').disabled=callJoining||onCamera||cameras>=2;
+ $('call').textContent='Join on camera';
+ $('hangup').textContent='Leave camera';
+ $('callNote').textContent=onCamera
+  ?'Your camera and microphone are visible to people in this room. Leave camera to stop sharing.'
+  :'Your movie and chat are always available. Choosing Join on camera shares your video and audio with everyone in this private room.';
 }
 function syncCallDock(){
  callMinimized=callViewMode==='minimized';
@@ -413,12 +411,12 @@ function cycleCallView(){
  syncCallDock()
 }
 function setCallUI(active){
- $('callOverlay').classList.toggle('hidden',!active);
+ $('callOverlay').classList.toggle('hidden',!active||!videoTiles.size);
  if(!active){callMinimized=false;callViewMode='compact';callRole=null;sharingCall=false}
  $('mic').textContent='Mute microphone';
  $('camera').textContent='Turn camera off';
- $('callStatus').textContent=active?(callRole==='spectator'?'Watching shared cameras':'On camera'):'No one on camera yet';
- updateSharingUI();syncCallDock();showMembers()
+ $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
+ syncCallDock();showMembers()
 }
 async function leaveCall(send=true){
  if(send&&socket.connected&&callActive)socket.emit('call:leave');
@@ -434,10 +432,10 @@ async function createPeer(id,initiator=false){
  const pc=new RTCPeerConnection({iceServers:iceConfig.iceServers});connections.set(id,pc);
  const remote=new MediaStream();remoteStreams.set(id,remote);
  const showRemote=callRole==='spectator'||callUser(id)?.role==='camera';
- const video=showRemote?displayTile(id):null;if(video)video.srcObject=remote;
+ const video=showRemote?displayTile(id):null;if(video){video.srcObject=remote;if(callRole==='spectator')video.muted=true;}
  if(callRole==='camera'&&localStream)localStream.getTracks().forEach(track=>pc.addTrack(track,localStream));
  else{pc.addTransceiver('audio',{direction:'recvonly'});pc.addTransceiver('video',{direction:'recvonly'})}
- pc.ontrack=e=>{const stream=remoteStreams.get(id);if(!stream)return;const tracks=e.streams?.[0]?.getTracks()||[e.track];for(const track of tracks)if(!stream.getTracks().some(t=>t.id===track.id))stream.addTrack(track);if(video){video.srcObject=stream;video.play().catch(()=>tileStatus(id,'Tap to play audio'))}};
+ pc.ontrack=e=>{const stream=remoteStreams.get(id);if(!stream)return;const tracks=e.streams?.[0]?.getTracks()||[e.track];for(const track of tracks)if(!stream.getTracks().some(t=>t.id===track.id))stream.addTrack(track);if(video){video.srcObject=stream;video.play().catch(()=>tileStatus(id,'Tap to hear audio'))}};
  pc.onicecandidate=e=>{if(e.candidate&&socket.connected)socket.emit('call:signal',{to:id,data:{candidate:e.candidate.toJSON()}})};
  pc.onconnectionstatechange=()=>{
    if(connections.get(id)!==pc)return;
