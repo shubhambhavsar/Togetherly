@@ -222,3 +222,19 @@ test('theater dock groups Exit fullscreen and a real chat icon',()=>{
  assert.ok(frontend.includes("$('toolbarChat').onclick=()=>toggleChat(!chatOpen)"),'Normal-mode chat must work');
  assert.ok(frontend.includes("$('chatBubble').onclick=()=>toggleChat(!chatOpen)"),'Fullscreen chat must work');
 });
+
+test('mobile theater dock is compact in portrait and landscape',()=>{
+ const compact=fs.readFileSync(path.join(root,'public/compact-mobile-dock.css'),'utf8');
+ assert.ok(html.includes('/compact-mobile-dock.css?v=1'),'Compact dock styles must load last');
+ assert.ok(html.includes('class="theater-chat-label"'),'Chat label should be hidden visually on mobile');
+ assert.ok(html.includes('id="theaterLabel"'),'Exit fullscreen label must remain accessible');
+ assert.ok(html.includes('aria-label="Exit fullscreen"'),'Fullscreen button needs accessibility label');
+ assert.ok(html.includes('aria-label="Open chat"'),'Chat button needs accessibility label');
+ assert.ok(compact.includes('(pointer:coarse) and (max-width:1100px)'),'Landscape phones should receive compact controls');
+ assert.ok(compact.includes('width:44px!important'),'Each button must have a compact touch target');
+ assert.ok(compact.includes('height:44px!important'),'Each button must have a usable touch target');
+ assert.ok(compact.includes('#videoShell.theater-mode #theaterLabel'),'Hide lengthy fullscreen text on mobile');
+ assert.ok(compact.includes('.theater-chat-label'),'Hide chat text on mobile');
+ assert.ok(compact.includes('max-width:104px!important'),'Mobile dock must stay narrow');
+ assert.ok(compact.includes('.unread:not(.hidden)'),'Unread count should remain available');
+});
