@@ -1,0 +1,33 @@
+'use strict';
+const express=require('express'),http=require('http'),{Server}=require('socket.io'),{randomBytes}=require('crypto'),path=require('path');
+const app=express(),server=http.createServer(app),io=new Server(server,{maxHttpBufferSize:16000});
+const rooms=new Map(),calls=new Map(),pending=new Map();
+app.disable('x-powered-by');
+app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Permissions-Policy','camera=(self), microphone=(self)');next()});
+app.use(express.static(path.join(__dirname,'public')));
+app.get('/health',(_req,res)=>res.json({ok:true}));
+app.get('/api/rtc',(_req,res)=>{const iceServers=[{urls:'stun:stun.l.google.com:19302'}];if(process.env.TURN_URL&&process.env.TURN_USERNAME&&process.env.TURN_CREDENTIAL)iceServers.push({urls:process.env.TURN_URL.split(','),username:process.env.TURN_USERNAME,credential:process.env.TURN_CREDENTIAL});res.json({iceServers})});
+app.get('/room/:id',(_req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+const safeName=x=>String(x||'Guest').replace(/[<>\x00-\x1f]/g,'').trim().slice(0,25)||'Guest';
+const validRoom=x=>typeof x==='string'&&/^[a-f0-9]{24}$/.test(x);
+const getVideo=x=>{if(typeof x!=='string'||x.length>500)return null;x=x.trim();if(/^[\w-]{11}$/.test(x))return x;try{const u=new URL(x);let id=null;if(['youtube.com','www.youtube.com','m.youtube.com'].includes(u.hostname)){id=u.pathname==='/watch'?u.searchParams.get('v'):u.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]{11})/)?.[1]}else if(['youtu.be','www.youtu.be'].includes(u.hostname))id=u.pathname.split('/')[1];return /^[\w-]{11}$/.test(id||'')?id:null}catch{return null}};
+const roomOf=s=>{const r=rooms.get(s.data.room);return r?.users.has(s.id)?r:null};
+const state=r=>({video:r.video,playing:r.playing,position:r.position+(r.playing?(Date.now()-r.at)/1000:0),version:r.version});
+const members=r=>[...r.users].map(([id,name])=>({id,name}));
+function endCall(s){const other=calls.get(s.id);if(other){calls.delete(s.id);calls.delete(other);io.to(other).emit('call:ended')}for(const [target,from] of pending){if(target===s.id||from===s.id){pending.delete(target);io.to(target===s.id?from:target).emit('call:ended')}}}
+function leave(s){endCall(s);const r=roomOf(s);if(!r)return;r.users.delete(s.id);s.leave(r.id);s.data.room=null;io.to(r.id).emit('members',members(r));if(!r.users.size)rooms.delete(r.id)}
+io.on('connection',s=>{
+s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r={id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[]};rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[]})});
+s.on('join',(d,ack)=>{if(typeof ack!=='function')return;const r=validRoom(d?.id)?rooms.get(d.id):null;if(!r)return ack({error:'Room not found. Ask for a new link.'});if(r.users.size>=8)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages});io.to(r.id).emit('members',members(r))});
+s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+s.on('playback',d=>{const r=roomOf(s);if(!r||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
+s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
+s.on('message',d=>{const r=roomOf(s);if(!r||typeof d?.text!=='string')return;const text=d.text.trim().slice(0,500);if(!text)return;const m={id:randomBytes(6).toString('hex'),name:r.users.get(s.id),text};r.messages.push(m);if(r.messages.length>40)r.messages.shift();io.to(r.id).emit('message',m)});
+s.on('call:invite',d=>{const r=roomOf(s);if(!r||!r.users.has(d?.to)||d.to===s.id||calls.has(s.id)||calls.has(d.to))return;s.data.invited=d.to;pending.set(d.to,s.id);io.to(d.to).emit('call:incoming',{from:s.id,name:r.users.get(s.id)})});
+s.on('call:accept',d=>{const r=roomOf(s),from=pending.get(s.id);if(!r||from!==d?.from||!r.users.has(from))return;pending.delete(s.id);calls.set(s.id,from);calls.set(from,s.id);io.to(from).emit('call:accepted',{from:s.id})});
+s.on('call:decline',()=>{const from=pending.get(s.id);pending.delete(s.id);if(from)io.to(from).emit('call:declined')});
+s.on('call:signal',d=>{const r=roomOf(s);if(!r||calls.get(s.id)!==d?.to||!r.users.has(d.to)||JSON.stringify(d.data||{}).length>12000)return;io.to(d.to).emit('call:signal',{from:s.id,data:d.data})});
+s.on('call:end',()=>endCall(s));
+s.on('disconnect',()=>leave(s))
+});
+server.listen(process.env.PORT||3000,'0.0.0.0',()=>console.log('Togetherly listening'));
