@@ -1,7 +1,7 @@
 /* Small, thumb-friendly controls in fullscreen on mobile.
    Keep text accessible via the existing button labels; show only icons visually.
    Includes phones in landscape mode, whose CSS width can exceed 600px. */
-@media (max-width:600px), ((pointer:coarse) and (max-width:1100px)), ((max-height:480px) and (max-width:1100px)) {
+@media (max-width:600px), (pointer:coarse) and (max-width:1100px), (max-height:480px) and (max-width:1100px) {
   #videoShell.theater-mode .theater-dock {
     width:auto!important;
     max-width:104px!important;
