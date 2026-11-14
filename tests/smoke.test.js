@@ -267,7 +267,7 @@ test('automatic camera viewing does not request microphone or camera permission'
  assert.ok(frontend.includes("startSpectatorView();notice('Reconnected"),'Room reconnect should restore camera subscription');
  assert.ok(frontend.includes("pc.addTransceiver('video',{direction:'recvonly'})"),'Viewers must never publish video tracks');
  assert.ok(frontend.includes("if(callRole==='spectator')video.muted=true"),'Passive video should autoplay without blocked audio');
- assert.ok(html.includes('visible to everyone with this room link'),'Explicit camera privacy notice must be shown');
+ assert.ok(html.includes('available to everyone with this room link'),'Explicit camera privacy notice must be shown');
 });
 test('mobile fullscreen chat follows visible viewport above the keyboard',()=>{
  const css=fs.readFileSync(path.join(root,'public/mobile-chat-fix.css'),'utf8');
