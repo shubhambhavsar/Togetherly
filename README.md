@@ -108,6 +108,10 @@ Security measures: public HTTPS URLs only, block IP/private hosts/internal domai
 
 Switch back to YouTube through the existing YouTube link and **Play now** controls or queue. The normal chat, camera tiles, and fullscreen exit remain unchanged. New room state fields `source` and `websiteUrl` live in process memory and will be lost on Render restart as before.
 
+### Optional third-party website suggestion
+
+The **Website Player (Beta)** includes a **Use FlexFlix link** button. It fills `https://flexflix.site/` into the URL field but does **not** load an iframe, broadcast the URL, or open another tab. A participant still has to select **Show website** explicitly. Label the suggestion clearly as an **unverified, unaffiliated third-party website** with potential advertising and popups. This is a user-requested shortcut, not a licensing, safety, or availability endorsement, and it does not change the playback/redirect guarantees.
+
 ### Website safety additions (review-only)
 
 The current live site already offers compatibility mode and Restore protection. This change adds the following protections to the shared Website Player, without changing the server-side room URL or affecting other participants:
