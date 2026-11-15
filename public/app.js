@@ -401,10 +401,10 @@ $('websiteCompatibility').onclick=()=>{
  const url=websiteRoomUrl();
  if(!url)return;
  const host=new URL(url).hostname;
- const message='Compatibility mode will load '+host+' without Togetherly iframe sandbox restrictions on this device.\\n\\n'
+ const message='Compatibility mode will load '+host+' without Togetherly iframe sandbox restrictions on this device.\n\n'
   +'The external site could open popups, request sign-in, or try to navigate you away. '
   +'Only continue if you trust this website and have permission to view its content. '
-  +'This does not synchronize third-party playback or bypass website protections.\\n\\nContinue?';
+  +'This does not synchronize third-party playback or bypass website protections.\n\nContinue?';
  if(!window.confirm(message))return;
  websiteCompatibilityFor=url;
  loadWebsiteFrame(url,true);
