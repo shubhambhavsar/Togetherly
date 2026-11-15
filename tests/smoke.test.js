@@ -358,7 +358,7 @@ test('website iframe is sandboxed and explicitly labels unsynchronized viewing',
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
  assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
- assert.ok(html.includes('/website-player.css?v=3'));
+ assert.ok(html.includes('/website-player.css?v=4'));
  assert.ok(html.includes('Never enter passwords in an embedded page.'));
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
  assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
@@ -446,7 +446,7 @@ test('website safety controls stop unsafe embeds without disconnecting the room'
  assert.ok(html.includes('id="websiteStopped"'));
  assert.ok(html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
- assert.ok(html.includes('/website-player.css?v=3')&&html.includes('/app.js?v=14'));
+ assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
  assert.ok(css.includes('.website-player-warning{z-index:4}'));
  assert.ok(backend.includes('geolocation=()')&&backend.includes('clipboard-write=(self)'));
  assert.ok(backend.includes('camera=(self), microphone=(self)'));
@@ -540,4 +540,31 @@ test('website safety controls stop unsafe embeds without disconnecting the room'
  assert.deepEqual(results.youtube,[null,false],'YouTube must remove the external website and guard');
  assert.ok(responses.some(v=>v.includes('External website stopped')),'Stop should acknowledge the action');
  assert.ok(frontend.includes("setWebsiteExitGuard(false);leaveCall();location.href='/'"),'Deliberately leaving Togetherly should bypass unexpected-navigation warning');
+});
+
+test('optional FlexFlix suggestion only prefills the URL, with explicit sharing and third-party warning',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="suggestFlexflix"'),'Suggestion button must exist');
+ assert.ok(html.includes('https://flexflix.site/'),'Show the exact website the user supplied');
+ assert.ok(html.includes('Unverified third-party site'),'Do not imply endorsement or verified licensing');
+ assert.ok(html.includes('not affiliated'),'Disclose that Togetherly is not affiliated');
+ assert.ok(css.includes('.website-suggestion-button'),'The suggested link needs a visible control');
+ const script=frontend.match(/\$\('suggestFlexflix'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/)?.[0];
+ assert.ok(script,'Suggestion handler missing');
+ let focused=false,loaded=false,feedback='';
+ const field={value:'',focus(){focused=true}};
+ const suggestion={onclick:null};
+ const elems={suggestFlexflix:suggestion,websiteURL:field};
+ vm.runInNewContext(script,{
+  $:id=>elems[id],
+  notice:message=>{feedback=message},
+  socket:{emit(){loaded=true}}
+ });
+ suggestion.onclick();
+ assert.equal(field.value,'https://flexflix.site/');
+ assert.equal(focused,true);
+ assert.equal(loaded,false,'Clicking suggestion must never broadcast or load a website');
+ assert.match(feedback,/choose Show website/i);
+ assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'User still must submit the normal shared URL form');
+ assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
 });
