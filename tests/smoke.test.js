@@ -358,7 +358,7 @@ test('website iframe is sandboxed and explicitly labels unsynchronized viewing',
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
  assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
- assert.ok(html.includes('/website-player.css?v=4'));
+ assert.ok(html.includes('/website-player.css?v=6'));
  assert.ok(html.includes('Never enter passwords in an embedded page.'));
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
  assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
@@ -446,7 +446,7 @@ test('website safety controls stop unsafe embeds without disconnecting the room'
  assert.ok(html.includes('id="websiteStopped"'));
  assert.ok(html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
- assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
+ assert.ok(html.includes('/website-player.css?v=6')&&html.includes('/app.js?v=17'));
  assert.ok(css.includes('.website-player-warning{z-index:4}'));
  assert.ok(backend.includes('geolocation=()')&&backend.includes('clipboard-write=(self)'));
  assert.ok(backend.includes('camera=(self), microphone=(self)'));
@@ -566,5 +566,79 @@ test('optional FlexFlix suggestion only prefills the URL, with explicit sharing 
  assert.equal(loaded,false,'Clicking suggestion must never broadcast or load a website');
  assert.match(feedback,/choose Show website/i);
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'User still must submit the normal shared URL form');
- assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
+ assert.ok(html.includes('/website-player.css?v=6')&&html.includes('/app.js?v=17'));
+});
+
+test('companion scope and drift correction thresholds',()=>{
+ const dir=path.join(root,'companion-extension');
+ const manifest=JSON.parse(fs.readFileSync(path.join(dir,'manifest.json'),'utf8'));
+ assert.equal(manifest.manifest_version,3);
+ assert.deepEqual(manifest.content_scripts[0].matches,['https://everydaygrove.ca/*']);
+ assert.deepEqual(manifest.content_scripts[1].matches,['https://flexflix.site/*','https://www.flexflix.site/*']);
+ assert.equal(manifest.content_scripts[1].all_frames,true);
+ assert.ok(!JSON.stringify(manifest).includes('<all_urls>')&&!JSON.stringify(manifest).includes('https://*/*'));
+ for(const p of ['cookies','webRequest','proxy','downloads'])assert.ok(!manifest.permissions.includes(p));
+ const drift=fs.readFileSync(path.join(dir,'drift.js'),'utf8');
+ const player=fs.readFileSync(path.join(dir,'player.js'),'utf8');
+ const bridge=fs.readFileSync(path.join(dir,'togetherly-bridge.js'),'utf8');
+ const worker=fs.readFileSync(path.join(dir,'service-worker.js'),'utf8');
+ for(const src of [drift,player,bridge,worker])new vm.Script(src);
+ assert.ok(player.includes("querySelectorAll('video')")&&player.includes('v.duration>=120'));
+ assert.ok(!player.includes('currentSrc')&&!player.includes("getAttribute('src')"));
+ assert.ok(worker.includes("state.role==='guest'")&&worker.includes('isTogetherly(sender.url)'));
+ assert.ok(bridge.includes('e.source!==window||e.origin!==location.origin'));
+ const context={};vm.runInNewContext(drift,context);
+ const decide=context.TogetherlyDrift.decide;
+ assert.equal(decide(20,25,true,4).seek,25);
+ assert.equal(decide(20,21,true,4).rate,1.07);
+ assert.equal(decide(21,20,true,4).rate,0.93);
+ assert.equal(decide(20,20.1,true,4).rate,1);
+ assert.equal(decide(20,23,false,4).playing,false);
+ assert.equal(decide(20,23,true,1),null);
+});
+test('owner-authorized website timeline and automatic leader transfer',async()=>{
+ let connected;const sent=[];
+ class FakeIO{on(event,fn){if(event==='connection')connected=fn}to(id){return{emit:(event,data)=>sent.push({id,event,data})}}}
+ const exp=()=>({disable(){},use(){},get(){}});exp.static=()=>()=>{};
+ const fakeRequire=id=>id==='express'?exp:id==='http'?{createServer:()=>({listen(){}})}:
+ id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'd'.repeat(n*2)})}:
+ id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ vm.runInNewContext(backend,{require:fakeRequire,URL:require('node:url').URL,process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
+ function client(id){
+  const handlers={},s={id,data:{},on:(e,fn)=>handlers[e]=fn,join(){},leave(){},
+   to:()=>({emit:(e,d)=>sent.push({id:'other',event:e,data:d})}),
+   emit:(e,d)=>sent.push({id,event:e,data:d})};
+  connected(s);return{ask:(e,d)=>new Promise(resolve=>handlers[e](d,resolve)),fire:e=>handlers[e]()};
+ }
+ const host=client('host'),guest=client('guest');
+ const created=await host.ask('create',{name:'Host'});
+ assert.equal(created.state.websiteLeader,'host');
+ await guest.ask('join',{id:created.id,name:'Guest'});
+ assert.match((await host.ask('website:sample',{version:0,position:45,playing:true})).error,/No supported/);
+ await host.ask('website',{url:'https://flexflix.site/movie'});
+ const ver=sent.filter(e=>e.event==='state').at(-1).data.version;
+ assert.match((await guest.ask('website:sample',{version:ver,position:45,playing:true})).error,/Only the room owner/);
+ assert.match((await host.ask('website:sample',{version:ver,position:-1,playing:true})).error,/Invalid playback/);
+ assert.equal((await host.ask('website:sample',{version:ver,position:80,playing:true})).ok,true);
+ const latest=sent.filter(e=>e.event==='website:timeline').at(-1).data.timeline;
+ assert.ok(latest.position>=80&&latest.playing);
+ guest.fire('sync');
+ assert.equal(sent.filter(e=>e.id==='guest'&&e.event==='state').at(-1).data.websiteLeader,'host');
+ host.fire('disconnect');
+ assert.equal(sent.filter(e=>e.event==='state').at(-1).data.websiteLeader,'guest');
+ assert.equal((await guest.ask('website:sample',{version:ver,position:88,playing:false})).ok,true);
+ await guest.ask('video',{url:'https://youtu.be/M7lc1UVf-VE'});
+ assert.match((await guest.ask('website:sample',{version:ver+1,position:2,playing:false})).error,/No supported/);
+});
+test('FlexFlix sync opt-in is wired without reading cross-origin iframe DOM',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="websiteSyncToggle"')&&html.includes('id="websiteSyncStatus"'));
+ assert.ok(html.includes('companion-extension'));
+ assert.ok(html.includes('/app.js?v=17')&&html.includes('/website-player.css?v=6'));
+ assert.ok(frontend.includes("socket.emit('website:sample'"));
+ assert.ok(frontend.includes("socket.on('website:timeline'"));
+ assert.ok(frontend.includes("websiteSyncPost('TARGET'"));
+ assert.ok(frontend.includes("websiteSyncPost('DISABLE'"));
+ assert.ok(!frontend.includes('contentWindow.document'));
+ assert.ok(css.includes('.website-sync-panel'));
 });
