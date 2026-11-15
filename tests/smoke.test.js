@@ -358,11 +358,11 @@ test('website iframe is sandboxed and explicitly labels unsynchronized viewing',
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
  assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
- assert.ok(html.includes('/website-player.css?v=2'));
+ assert.ok(html.includes('/website-player.css?v=3'));
  assert.ok(html.includes('Never enter passwords in an embedded page.'));
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
  assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
- assert.ok(frontend.includes("frame.getAttribute('src')!==target"),'Recurring room sync must not reload the external website');
+ assert.ok(frontend.includes('if(websiteSelectedUrl!==target)'), 'Recurring room sync must not reload the external website');
  assert.ok(frontend.includes("if(frame.hasAttribute('src'))frame.removeAttribute('src')"),'Returning to YouTube should unload external page');
  assert.ok(frontend.includes("lastState?.source==='website'"),'Ignore YouTube player events while website mode is active');
  assert.ok(css.includes('website-mode #player'),'YouTube player must be hidden while website mode is active');
@@ -386,7 +386,7 @@ test('website compatibility is local, opt-in, reversible, and resets on URL chan
   });
   return nodes.get(id)
  };
- const context={URL,window:{confirm:()=>context.allow},$:node,allow:false,lastState:null};
+ const context={URL,window:{confirm:()=>context.allow,addEventListener(){},removeEventListener(){}},$:node,allow:false,lastState:null};
  const begin=frontend.indexOf('const WEBSITE_FRAME_SANDBOX=');
  const finish=frontend.indexOf('function applyState(s){',begin);
  assert.ok(begin>0&&finish>begin,'Compatibility implementation missing');
