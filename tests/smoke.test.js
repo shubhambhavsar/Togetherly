@@ -391,7 +391,7 @@ test('website compatibility is local, opt-in, reversible, and resets on URL chan
  const finish=frontend.indexOf('function applyState(s){',begin);
  assert.ok(begin>0&&finish>begin,'Compatibility implementation missing');
  const source=frontend.slice(begin,finish);
- function evaluate(code){return vm.runInNewContext(source+'\\n'+code,context)}
+ function evaluate(code){return vm.runInNewContext(source+'\n'+code,context)}
  // One session: simulate initial render and rejected user confirmation.
  const expected=evaluate(`
   lastState={source:'website',websiteUrl:'https://example.org/movie'};
