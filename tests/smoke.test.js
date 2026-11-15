@@ -311,7 +311,7 @@ test('shared HTTPS website source is validated, broadcast, and switched back to 
  const fakeRequire=id=>id==='express'?express:id==='http'?{createServer:()=>({listen(){}})}:
   id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'c'.repeat(n*2)})}:
   id==='path'?{join:(...p)=>p.join('/')}:require(id);
- vm.runInNewContext(backend,{require:fakeRequire,process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
+ vm.runInNewContext(backend,{require:fakeRequire,URL:require('node:url').URL,process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
  function client(id){
   const handlers={},socket={id,data:{},on:(event,fn)=>handlers[event]=fn,join(){},leave(){},
    to:()=>({emit:(event,data)=>outbound.push({roomId:'other',event,data})}),
