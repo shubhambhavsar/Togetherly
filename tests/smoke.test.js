@@ -476,7 +476,7 @@ test('website safety controls stop unsafe embeds without disconnecting the room'
   addEventListener:(type,listener)=>{events.set(type,listener)},
   removeEventListener:(type,listener)=>{if(events.get(type)===listener)events.delete(type)}
  };
- const context={URL,window:pageWindow,$:element,toast:text=>responses.push(text),lastState:null};
+ const context={URL,window:pageWindow,$:element,toast:text=>responses.push(text),lastState:null,websiteSyncActive:false,websiteSyncDisable(){}};
  const begin=frontend.indexOf('const WEBSITE_FRAME_SANDBOX='),end=frontend.indexOf('function applyState(s){',begin);
  assert.ok(begin>0&&end>begin,'Safety code must exist in shared player state handler');
  const code=frontend.slice(begin,end);
