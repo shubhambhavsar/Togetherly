@@ -124,3 +124,19 @@ The current live site already offers compatibility mode and Restore protection. 
 **Limitations:** An unsandboxed third-party frame still controls its own content and may open new tabs/popups or navigate using browser-permitted gestures. The parent page cannot reliably inspect cross-origin ads, block all popups, or intercept iframe-internal redirect chains. Use a browser-level popup blocker or reputable content blocker for stronger filtering. Do not attempt to evade the embedded website's own framing, access, DRM, or content rights restrictions.
 
 This change is **only on a review branch**. Do not merge or deploy until the user explicitly requests `deploy`.
+
+## Proposed feature: experimental FlexFlix drift correction (review-only)
+
+**This feature is on a separate review branch and has not been deployed.** It is independent of the pending FlexFlix default-compatibility/fullscreen PR #11.
+
+The website player will show **Enable auto sync** for a room sharing a FlexFlix HTTPS URL. Automatic sync is **off until each participant explicitly enables it**. It requires the optional, locally installed [Togetherly Movie Sync Companion](companion-extension/README.md) in each supported desktop Chromium browser.
+
+- The first room creator is the source-of-truth timing leader; if the leader leaves, the next connected participant can publish timing.
+- The leader's companion sends only `currentTime` and `playing` from a directly accessible HTML5 video to the existing Socket.IO room. Guests' companions compare their own position to that timeline.
+- A drift of **at least 2.5 seconds** triggers a seek within the available seekable range. A drift of **0.65–2.5 seconds** temporarily adjusts playback rate to 0.93× or 1.07×. When aligned, playback speed returns to 1×.
+- Playback is restricted to the exact FlexFlix hostname and its `www` variant for this prototype. A guest may need to click Play once before browsers allow autoplay. All guests must select the same movie and cut individually.
+- Video data, signed media links, cookies, and DRM credentials are neither extracted nor shared. The extension does not provide access to otherwise unavailable content.
+- **No automatic control is possible for unknown nested third-party player origins.** FlexFlix publicly states that its videos are provided by unaffiliated services; therefore many actual movies may remain **unsupported**. When the companion cannot detect an accessible `<video>`, Togetherly will show that status instead of falsely claiming the movie is synchronized.
+- The implementation has source-level and simulated integration checks; **no live-browser test of FlexFlix playback compatibility has been completed**.
+
+**Do not merge or deploy this feature until the user explicitly says `deploy`.**
