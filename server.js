@@ -1,5 +1,5 @@
 'use strict';
-const express=require('express'),http=require('http'),{Server}=require('socket.io'),{randomBytes}=require('crypto'),path=require('path');
+const express=require('express'),http=require('http'),{Server}=require('socket.io'),{randomBytes}=require('crypto'),path=require('path'),{isIP}=require('node:net');
 const app=express(),server=http.createServer(app),io=new Server(server,{maxHttpBufferSize:16000});
 const rooms=new Map();
 const MAX_CAMERA_PARTICIPANTS=2;
@@ -118,12 +118,28 @@ app.get('/room/:id',(_req,res)=>res.sendFile(path.join(__dirname,'public','index
 const safeName=x=>typeof x==='string'?x.replace(/[<>\x00-\x1f]/g,'').trim().slice(0,25):'';
 const validRoom=x=>typeof x==='string'&&/^[a-f0-9]{24}$/.test(x);
 const getVideo=x=>{if(typeof x!=='string'||x.length>500)return null;x=x.trim();if(/^[\w-]{11}$/.test(x))return x;try{const u=new URL(x);let id=null;if(['youtube.com','www.youtube.com','m.youtube.com'].includes(u.hostname)){id=u.pathname==='/watch'?u.searchParams.get('v'):u.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]{11})/)?.[1]}else if(['youtu.be','www.youtu.be'].includes(u.hostname))id=u.pathname.split('/')[1];return /^[\w-]{11}$/.test(id||'')?id:null}catch{return null}};
+// Shared external websites are experimental. No server-side fetching, proxying,
+// credential handling, DRM bypassing, or remote play/pause control is provided.
+function validateWebsiteUrl(raw){
+ if(typeof raw!=='string'||raw.length>500||/[\\x00-\\x1f]/.test(raw))return null;
+ try{
+  const u=new URL(raw.trim());
+  const host=u.hostname.toLowerCase();
+  if(u.protocol!=='https:'||u.username||u.password||u.port)return null;
+  if(!host.includes('.')||isIP(host)||host==='localhost'||host.endsWith('.localhost')||
+     ['.local','.internal','.test','.invalid','.onion','.example'].some(suffix=>host.endsWith(suffix)))return null;
+  if(host==='everydaygrove.ca'||host.endsWith('.everydaygrove.ca'))return null;
+  if([...u.searchParams.keys()].some(k=>/^(access_token|auth|session|sessionid|apikey|api_key|password|credential|token|key)$/i.test(k)))return null;
+  u.hash='';
+  return u.toString();
+ }catch{return null}
+}
 const roomOf=s=>{const r=rooms.get(s.data.room);return r?.users.has(s.id)?r:null};
-const state=r=>({video:r.video,playing:r.playing,position:r.position+(r.playing?(Date.now()-r.at)/1000:0),version:r.version});
+const state=r=>({source:r.source||'youtube',websiteUrl:r.websiteUrl||'',video:r.video,playing:r.source==='website'?false:r.playing,position:r.position+(r.playing&&r.source!=='website'?(Date.now()-r.at)/1000:0),version:r.version});
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
 const callMembers=r=>[...r.callUsers].map(([id,meta])=>({id,role:meta.role,sharing:!!meta.sharing}));
 const publishCall=r=>io.to(r.id).emit('call:members',callMembers(r));
-function newRoom(id){return {id,users:new Map(),video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
+function newRoom(id){return {id,users:new Map(),source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
 setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
 
 function leaveCall(s) {
@@ -145,8 +161,15 @@ s.on('room:rename',(d,ack)=>{
  r.users.set(s.id,newName);io.to(r.id).emit('members',members(r));
  ack?.({ok:true});
 });
-s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
+s.on('website',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
+ const websiteUrl=validateWebsiteUrl(d?.url);
+ if(!websiteUrl)return ack?.({error:'Enter a public HTTPS website URL without passwords or access tokens'});
+ r.source='website';r.websiteUrl=websiteUrl;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ io.to(r.id).emit('state',state(r));ack?.({ok:true});
+});
 s.on('discover:search',async(d,ack)=>{
  if(typeof ack!=='function')return;
  if(!roomOf(s))return ack({error:'Join the watch room before searching'});
@@ -170,7 +193,7 @@ s.on('queue:add',(d,ack)=>{
 s.on('queue:play',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Video not found in queue'});
- const item=r.queue.splice(i,1)[0];r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
  io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
 });
 s.on('queue:remove',(d,ack)=>{
@@ -178,7 +201,7 @@ s.on('queue:remove',(d,ack)=>{
  const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Not in queue'});
  r.queue.splice(i,1);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
 });
-s.on('playback',d=>{const r=roomOf(s);if(!r||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
+s.on('playback',d=>{const r=roomOf(s);if(!r||r.source==='website'||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
 s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
 function sendChat(d,ack){
  const r=roomOf(s);
