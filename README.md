@@ -97,3 +97,15 @@ On phones, fullscreen contains only a compact **Exit fullscreen** button on the 
 - Successful Watch Shelf searches do not show a technical embedding/region precheck notice. Eligibility filtering still runs in the backend.
 - If YouTube playback fails, users see **This video is not available. Choose something else.** plus a **Find another video** action. YouTube error codes remain in console diagnostics, not the user-facing message.
 - See `docs/streaming-capacity-review-2026-11.md` for research into Netflix/Prime Video integration, current costs, room limits, and suggested scaling architecture.
+
+## Pending feature: experimental shared website player (review-only)
+
+Alongside the existing YouTube URL input, room members can enter a **public HTTPS website URL** into the new **Website Player (Beta)** field and choose **Show website**. Togetherly broadcasts the validated URL to the room; each participant's browser attempts to display the same external website inside an iframe. A visible source badge and **Open outside Togetherly** link are always available.
+
+**This is NOT synchronized third-party movie playback.** It shares the initial page address only; navigation, play/pause, seeking, video availability, authentication and cookies are controlled by the external site and browser. Some sites prevent being framed through `X-Frame-Options` or `Content-Security-Policy: frame-ancestors`, and we deliberately do not try to bypass these restrictions. User-supplied sites such as Apne TV or Flex Movie have **not** been verified to work or authorized for screening on Togetherly. Selecting a site does not supply licensing rights. Netflix and Prime Video cannot be shared by signing one subscriber in through this feature.
+
+Security measures: public HTTPS URLs only, block IP/private hosts/internal domains, block URL credentials and obvious secret-bearing query params, prohibit embedding Togetherly's own origin, never fetch or proxy third-party media on the server, and load the website inside a restricted iframe (`allow-scripts allow-presentation` only; no iframe form submissions, popups, same-origin permissions, or top navigation). **Do not enter website passwords in an embedded page.** If the preview is blank or noninteractive, use the external link instead.
+
+Switch back to YouTube through the existing YouTube link and **Play now** controls or queue. The normal chat, camera tiles, and fullscreen exit remain unchanged. New room state fields `source` and `websiteUrl` live in process memory and will be lost on Render restart as before.
+
+The change is prepared on a feature branch and **must not be merged into `main` or deployed to Render until the user explicitly says `deploy`.**
