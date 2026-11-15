@@ -360,7 +360,7 @@ function websiteRoomUrl(){
 // Browsers only show it in some circumstances, typically after user interaction.
 function warnBeforeExternalNavigation(event){
  event.preventDefault();
- event.returnValue='';
+ event.returnValue=true;
 }
 function setWebsiteExitGuard(enabled){
  if(websiteExitGuardArmed===enabled)return;
@@ -434,10 +434,10 @@ $('websiteCompatibility').onclick=()=>{
  const url=websiteRoomUrl();
  if(!url||websiteStoppedFor===url)return;
  const host=new URL(url).hostname;
- const message='Compatibility mode will load '+host+' without iframe sandbox restrictions on this device.\\n\\n'
+ const message='Compatibility mode will load '+host+' without iframe sandbox restrictions on this device.\n\n'
   +'That website may open popups or try to redirect the Togetherly tab. '
   +'We will ask your browser to warn before leaving, but browsers cannot guarantee protection. '
-  +'Only continue if you trust this website and have permission to view its content.\\n\\nContinue?';
+  +'Only continue if you trust this website and have permission to view its content.\n\nContinue?';
  if(!window.confirm(message))return;
  websiteCompatibilityFor=url;
  loadWebsiteFrame(url,true);
