@@ -577,7 +577,7 @@ test('companion scope and drift correction thresholds',()=>{
  assert.deepEqual(manifest.content_scripts[1].matches,['https://flexflix.site/*','https://www.flexflix.site/*']);
  assert.equal(manifest.content_scripts[1].all_frames,true);
  assert.ok(!JSON.stringify(manifest).includes('<all_urls>')&&!JSON.stringify(manifest).includes('https://*/*'));
- for(const p of ['cookies','webRequest','proxy','downloads'])assert.ok(!manifest.permissions.includes(p));
+ for(const p of ['tabs','cookies','webRequest','proxy','downloads'])assert.ok(!manifest.permissions.includes(p));
  const drift=fs.readFileSync(path.join(dir,'drift.js'),'utf8');
  const player=fs.readFileSync(path.join(dir,'player.js'),'utf8');
  const bridge=fs.readFileSync(path.join(dir,'togetherly-bridge.js'),'utf8');
