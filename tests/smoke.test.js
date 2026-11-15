@@ -529,7 +529,7 @@ test('website safety controls stop unsafe embeds without disconnecting the room'
     hasGuard:()=>events.has('beforeunload'),
     onGuard:e=>events.get('beforeunload')?.(e)
  });
- const results=Object.fromEntries(notes);
+ const results=Object.fromEntries(notes.map(([key,value])=>[key,Array.from(value)]));
  assert.deepEqual(results.compat,[false,true],'Compatibility opt-in should remove sandbox and register exit guard');
  assert.deepEqual(results.warning,[true,true],'The exit guard should request a native browser leave confirmation');
  assert.deepEqual(results.sync,[true],'Repeated room state must not reload an active movie');
