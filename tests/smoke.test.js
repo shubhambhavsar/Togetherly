@@ -439,3 +439,105 @@ test('website compatibility is local, opt-in, reversible, and resets on URL chan
  assert.ok(frontend.includes('if(!window.confirm(message))return'),'Compatibility must require user consent');
  assert.ok(!backend.includes('websiteCompatibilityFor'),'Compatibility must never persist on the room server');
 });
+
+test('website safety controls stop unsafe embeds without disconnecting the room',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="websiteStop"')&&html.includes('id="websiteResume"'));
+ assert.ok(html.includes('id="websiteStopped"'));
+ assert.ok(html.includes('rel="noopener noreferrer nofollow"'));
+ assert.ok(html.includes('referrerpolicy="no-referrer"'));
+ assert.ok(html.includes('/website-player.css?v=3')&&html.includes('/app.js?v=14'));
+ assert.ok(css.includes('.website-player-warning{z-index:4}'));
+ assert.ok(backend.includes('geolocation=()')&&backend.includes('clipboard-write=(self)'));
+ assert.ok(backend.includes('camera=(self), microphone=(self)'));
+ assert.ok(!backend.includes('websiteStoppedFor'),'Stop and compatibility must stay local, not affect the shared room state');
+ const events=new Map(),responses=[],classes=new Map();
+ const frame={attrs:new Map([['sandbox','allow-scripts allow-presentation']]),actions:[],
+  hasAttribute(k){return this.attrs.has(k)},
+  getAttribute(k){return this.attrs.get(k)||null},
+  setAttribute(k,v){this.attrs.set(k,v);this.actions.push('set:'+k)},
+  removeAttribute(k){this.attrs.delete(k);this.actions.push('remove:'+k)}
+ };
+ const nodes=new Map();
+ const element=id=>{
+  if(id==='websiteFrame')return frame;
+  if(!nodes.has(id)){
+   const flags=new Set();
+   nodes.set(id,{
+    value:'',href:'',textContent:'',
+    classList:{toggle:(key,on)=>on?flags.add(key):flags.delete(key),contains:k=>flags.has(k)}
+   });
+  }
+  return nodes.get(id)
+ };
+ let allowed=false;
+ const pageWindow={
+  confirm:()=>allowed,
+  addEventListener:(type,listener)=>{events.set(type,listener)},
+  removeEventListener:(type,listener)=>{if(events.get(type)===listener)events.delete(type)}
+ };
+ const context={URL,window:pageWindow,$:element,toast:text=>responses.push(text),lastState:null};
+ const begin=frontend.indexOf('const WEBSITE_FRAME_SANDBOX='),end=frontend.indexOf('function applyState(s){',begin);
+ assert.ok(begin>0&&end>begin,'Safety code must exist in shared player state handler');
+ const code=frontend.slice(begin,end);
+ vm.runInNewContext(code+`
+   lastState={source:'website',websiteUrl:'https://video.example/movie'};
+   setWebsitePlayer(lastState);
+ `,{...context});
+ assert.equal(frame.getAttribute('sandbox'),'allow-scripts allow-presentation');
+ assert.equal(frame.getAttribute('src'),'https://video.example/movie');
+ assert.equal(events.has('beforeunload'),false,'Protected preview should not warn on normal navigation');
+ // Each evaluation uses a fresh context. This one exercises an uninterrupted
+ // real viewer session from open through opt-in, stop, and resume.
+ allowed=true;frame.attrs.clear();frame.attrs.set('sandbox','allow-scripts allow-presentation');
+ events.clear();nodes.clear();frame.actions=[];
+ const notes=[];
+ vm.runInNewContext(code+`
+  lastState={source:'website',websiteUrl:'https://video.example/movie'};
+  setWebsitePlayer(lastState);
+  $('websiteCompatibility').onclick();
+  note('compat',[$('websiteFrame').hasAttribute('sandbox'),hasGuard()]);
+  let prevented=false,ev={preventDefault:()=>prevented=true,returnValue:null};
+  onGuard(ev);
+  note('warning',[prevented,ev.returnValue]);
+  let before=$('websiteFrame').actions.length;
+  setWebsitePlayer(lastState);
+  note('sync',[$('websiteFrame').actions.length===before]);
+  $('websiteStop').onclick();
+  note('stopped',[
+   $('websiteFrame').getAttribute('src'),
+   $('websiteFrame').getAttribute('sandbox'),
+   hasGuard(),
+   $('websiteStopped').classList.contains('hidden'),
+   $('websiteResume').classList.contains('hidden')
+  ]);
+  before=$('websiteFrame').actions.length;
+  setWebsitePlayer(lastState);
+  note('staysStopped',[$('websiteFrame').actions.length===before]);
+  $('websiteResume').onclick();
+  note('resumed',[$('websiteFrame').getAttribute('src'),$('websiteFrame').getAttribute('sandbox'),hasGuard()]);
+  $('websiteCompatibility').onclick();
+  lastState={source:'website',websiteUrl:'https://different.example/new'};
+  setWebsitePlayer(lastState);
+  note('newSite',[$('websiteFrame').getAttribute('sandbox'),hasGuard(),$('websiteFrame').getAttribute('src')]);
+  $('websiteStop').onclick();
+  lastState={source:'youtube'};
+  setWebsitePlayer(lastState);
+  note('youtube',[$('websiteFrame').getAttribute('src'),hasGuard()]);
+ `,{...context,
+    note:(key,value)=>notes.push([key,value]),
+    hasGuard:()=>events.has('beforeunload'),
+    onGuard:e=>events.get('beforeunload')?.(e)
+ });
+ const results=Object.fromEntries(notes);
+ assert.deepEqual(results.compat,[false,true],'Compatibility opt-in should remove sandbox and register exit guard');
+ assert.deepEqual(results.warning,[true,true],'The exit guard should request a native browser leave confirmation');
+ assert.deepEqual(results.sync,[true],'Repeated room state must not reload an active movie');
+ assert.deepEqual(results.stopped,[null,'allow-scripts allow-presentation',false,false,false],'Emergency stop must unload and restore sandbox');
+ assert.deepEqual(results.staysStopped,[true],'Normal sync must not restart a stopped website');
+ assert.deepEqual(results.resumed,['https://video.example/movie','allow-scripts allow-presentation',false],'Resume must return to safe mode');
+ assert.deepEqual(results.newSite,['allow-scripts allow-presentation',false,'https://different.example/new']);
+ assert.deepEqual(results.youtube,[null,false],'YouTube must remove the external website and guard');
+ assert.ok(responses.some(v=>v.includes('External website stopped')),'Stop should acknowledge the action');
+ assert.ok(frontend.includes("setWebsiteExitGuard(false);leaveCall();location.href='/'"),'Deliberately leaving Togetherly should bypass unexpected-navigation warning');
+});
