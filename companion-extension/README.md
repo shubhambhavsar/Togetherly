@@ -7,7 +7,7 @@ This is an **optional Chrome/Edge Manifest V3 extension** for people who want au
 1. Obtain a copy of this repository and extract it locally. Keep `companion-extension/` as its own folder.
 2. Open `chrome://extensions` (Chrome) or `edge://extensions` (Edge).
 3. Enable **Developer mode**, click **Load unpacked**, and select the `companion-extension` directory. Review the permissions before granting them.
-4. Refresh `https://everydaygrove.ca`, create or join a Togetherly room, and share the FlexFlix page with **Show website**.
+4. Refresh `https://everydaygrove.ca`, create or join a Togetherly room, and share the FlexFlix page with **Show website**. If playback requires it, use Togetherly's existing **Try compatibility mode** control; the pending fullscreen/compatibility PR is separate.
 5. When the player is visible, choose **Enable auto sync** under the Website Player panel. Everyone who wants automatic sync must install and enable the companion separately.
 6. The room creator (or next available room member if the creator leaves) is the timing leader. Guests should choose the **same movie and corresponding video/server** themselves. Press Play at least once if the browser blocks automatic playback.
 
