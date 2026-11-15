@@ -121,7 +121,7 @@ const getVideo=x=>{if(typeof x!=='string'||x.length>500)return null;x=x.trim();i
 // Shared external websites are experimental. No server-side fetching, proxying,
 // credential handling, DRM bypassing, or remote play/pause control is provided.
 function validateWebsiteUrl(raw){
- if(typeof raw!=='string'||raw.length>500||/[\\x00-\\x1f]/.test(raw))return null;
+ if(typeof raw!=='string'||raw.length>500||/[\x00-\x1f]/.test(raw))return null;
  try{
   const u=new URL(raw.trim());
   const host=u.hostname.toLowerCase();
