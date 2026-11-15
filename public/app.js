@@ -26,7 +26,7 @@ function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFr
 $('create').onclick=create;$('join').onclick=join;
 if(roomFromPath){$('joinbox').classList.remove('hidden');$('create').textContent='Create a different room'}
 $('copy').onclick=async()=>{const url=location.origin+'/room/'+room;try{await navigator.clipboard.writeText(url);toast('Invite link copied')}catch{prompt('Copy this room link:',url)}};
-$('leave').onclick=()=>{leaveCall();location.href='/'};
+$('leave').onclick=()=>{setWebsiteExitGuard(false);leaveCall();location.href='/'};
 function showMembers(){
  for(const [id,item] of videoTiles){if(id!=='self'){const label=item.tile.querySelector('.tile-label');if(label)label.textContent=participants.find(p=>p.id===id)?.name||'Participant'}}
  const box=$('members');box.replaceChildren();$('count').textContent=participants.length+' watching together';$('roomSeats').textContent=cameraMembers().length+'/2 camera seats';
@@ -347,7 +347,8 @@ function sendPlayback(action){if(!playerReady||applying||lastState?.source==='we
 // External sites are sandboxed by default. Every browser must explicitly opt into
 // removing the sandbox for an individual exact URL; this never changes room state.
 const WEBSITE_FRAME_SANDBOX='allow-scripts allow-presentation';
-let websiteCompatibilityFor=null;
+let websiteCompatibilityFor=null,websiteStoppedFor=null,websiteSelectedUrl=null;
+let websiteExitGuardArmed=false;
 function websiteRoomUrl(){
  if(lastState?.source!=='website'||typeof lastState.websiteUrl!=='string')return null;
  try{
@@ -355,22 +356,47 @@ function websiteRoomUrl(){
   return u.protocol==='https:'?u.toString():null;
  }catch{return null}
 }
+// This is a best-effort browser warning, not a reliable popup or redirect blocker.
+// Browsers only show it in some circumstances, typically after user interaction.
+function warnBeforeExternalNavigation(event){
+ event.preventDefault();
+ event.returnValue='';
+}
+function setWebsiteExitGuard(enabled){
+ if(websiteExitGuardArmed===enabled)return;
+ websiteExitGuardArmed=enabled;
+ if(enabled)window.addEventListener('beforeunload',warnBeforeExternalNavigation);
+ else window.removeEventListener('beforeunload',warnBeforeExternalNavigation);
+}
+function unloadWebsiteFrame(){
+ const frame=$('websiteFrame');
+ if(frame.hasAttribute('src'))frame.removeAttribute('src');
+ frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
+ setWebsiteExitGuard(false);
+}
 function loadWebsiteFrame(url,compatibility=false){
  const frame=$('websiteFrame');
- // Changing/removing a sandbox flag alone does not affect an already loaded
- // document. Unload the old page, change policy, then perform a fresh navigation.
+ // Reset before changing sandbox flags. A new navigation is required for a
+ // sandbox change to apply to the embedded document.
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
  if(compatibility)frame.removeAttribute('sandbox');
  else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
  frame.setAttribute('src',url);
+ setWebsiteExitGuard(compatibility);
 }
 function updateWebsiteCompatibilityControls(url){
- const enabled=!!url&&websiteCompatibilityFor===url;
- $('websiteCompatibility').classList.toggle('hidden',enabled);
+ const stopped=!!url&&websiteStoppedFor===url;
+ const enabled=!stopped&&!!url&&websiteCompatibilityFor===url;
+ $('websiteCompatibility').classList.toggle('hidden',enabled||stopped);
  $('websiteRestoreSandbox').classList.toggle('hidden',!enabled);
- $('websiteModeStatus').textContent=enabled
-  ?'Compatibility mode on this device · Playback is not synchronized'
-  :'Protected preview · Playback is not synchronized';
+ $('websiteStop').classList.toggle('hidden',stopped||!url);
+ $('websiteResume').classList.toggle('hidden',!stopped);
+ $('websiteStopped').classList.toggle('hidden',!stopped);
+ $('websiteModeStatus').textContent=stopped
+  ?'Stopped on this device · Togetherly room stays open'
+  :enabled
+   ?'Compatibility mode · Browser may warn before leaving Togetherly'
+   :'Protected preview · Playback is not synchronized';
 }
 function setWebsitePlayer(s){
  const external=s?.source==='website'&&typeof s.websiteUrl==='string'&&s.websiteUrl.startsWith('https://');
@@ -383,28 +409,35 @@ function setWebsitePlayer(s){
   $('websiteHost').textContent=url.hostname;
   $('openWebsite').href=target;
   $('websiteURL').value=target;
-  // A different shared URL always reverts to the protected iframe.
-  if(frame.getAttribute('src')!==target){
+  // A new shared URL must revoke any local exception or stopped state.
+  if(websiteSelectedUrl!==target){
+   websiteSelectedUrl=target;
+   websiteCompatibilityFor=null;
+   websiteStoppedFor=null;
+   loadWebsiteFrame(target,false);
+  }else if(websiteStoppedFor!==target&&!frame.hasAttribute('src')){
+   // Recover a page that was unloaded without changing the shared room URL.
    websiteCompatibilityFor=null;
    loadWebsiteFrame(target,false);
   }
   updateWebsiteCompatibilityControls(target);
  }else{
+  websiteSelectedUrl=null;
   websiteCompatibilityFor=null;
-  if(frame.hasAttribute('src'))frame.removeAttribute('src');
-  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
+  websiteStoppedFor=null;
+  unloadWebsiteFrame();
   updateWebsiteCompatibilityControls(null);
  }
  return external
 }
 $('websiteCompatibility').onclick=()=>{
  const url=websiteRoomUrl();
- if(!url)return;
+ if(!url||websiteStoppedFor===url)return;
  const host=new URL(url).hostname;
- const message='Compatibility mode will load '+host+' without Togetherly iframe sandbox restrictions on this device.\n\n'
-  +'The external site could open popups, request sign-in, or try to navigate you away. '
-  +'Only continue if you trust this website and have permission to view its content. '
-  +'This does not synchronize third-party playback or bypass website protections.\n\nContinue?';
+ const message='Compatibility mode will load '+host+' without iframe sandbox restrictions on this device.\\n\\n'
+  +'That website may open popups or try to redirect the Togetherly tab. '
+  +'We will ask your browser to warn before leaving, but browsers cannot guarantee protection. '
+  +'Only continue if you trust this website and have permission to view its content.\\n\\nContinue?';
  if(!window.confirm(message))return;
  websiteCompatibilityFor=url;
  loadWebsiteFrame(url,true);
@@ -412,7 +445,24 @@ $('websiteCompatibility').onclick=()=>{
 };
 $('websiteRestoreSandbox').onclick=()=>{
  const url=websiteRoomUrl();
+ if(!url||websiteStoppedFor===url)return;
+ websiteCompatibilityFor=null;
+ loadWebsiteFrame(url,false);
+ updateWebsiteCompatibilityControls(url);
+};
+$('websiteStop').onclick=()=>{
+ const url=websiteRoomUrl();
  if(!url)return;
+ websiteStoppedFor=url;
+ websiteCompatibilityFor=null;
+ unloadWebsiteFrame();
+ updateWebsiteCompatibilityControls(url);
+ toast('External website stopped on this device.');
+};
+$('websiteResume').onclick=()=>{
+ const url=websiteRoomUrl();
+ if(!url||websiteStoppedFor!==url)return;
+ websiteStoppedFor=null;
  websiteCompatibilityFor=null;
  loadWebsiteFrame(url,false);
  updateWebsiteCompatibilityControls(url);
