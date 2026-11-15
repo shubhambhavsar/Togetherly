@@ -641,7 +641,7 @@ test('FlexFlix uses default compatibility only on its exact HTTPS host while kee
 });
 test('website fullscreen can expand Togetherly stage with cameras and permit nested player fullscreen',()=>{
  const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
- assert.match(html,/id="websiteFrame"[\\s\\S]*?allow="autoplay; fullscreen \*" allowfullscreen/,'The external iframe must permit native fullscreen and nested frames');
+ assert.ok(html.includes('id="websiteFrame"')&&html.includes('allow="autoplay; fullscreen *" allowfullscreen'),'The external iframe must permit native fullscreen and nested frames');
  assert.ok(html.includes('id="websiteFullscreen"')&&html.includes('Fullscreen + cameras'));
  assert.ok(frontend.includes("$('websiteFullscreen').onclick=toggleTheater"),'Web fullscreen should use the Togetherly stage and cameras');
  assert.ok(frontend.includes("$('websiteFullscreen').textContent=active?'Exit Togetherly fullscreen':'Fullscreen + cameras'"));
