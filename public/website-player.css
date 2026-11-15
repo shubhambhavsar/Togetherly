@@ -41,6 +41,24 @@
 }
 .website-source-input button{flex:none;white-space:nowrap}
 .website-source-help{margin:7px 0 0}
+.website-suggestions{
+ display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;
+ padding:10px 0 5px;
+}
+.website-suggestions-label{font-size:9px;font-weight:750;letter-spacing:1px;color:#a8b8c7}
+.website-suggestion-button{
+ cursor:pointer;border:1px solid #6b889e;border-radius:7px;
+ background:#203548;color:#f4f1eb;padding:7px 10px;
+ font-size:12px;font-weight:650;
+}
+.website-suggestion-button:hover,.website-suggestion-button:focus-visible{
+ background:#2e4a62;outline-offset:2px;
+}
+.website-suggestion-note{font-size:10px;color:#a8b8c7;line-height:1.45;overflow-wrap:anywhere}
+@media(max-width:700px){
+ .website-suggestions{align-items:flex-start}
+ .website-suggestion-note{flex-basis:100%}
+}
 #videoShell.website-mode.theater-mode .website-player-warning{
  bottom:max(12px,env(safe-area-inset-bottom));
  max-width:calc(100% - 100px);
