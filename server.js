@@ -134,12 +134,28 @@ function validateWebsiteUrl(raw){
   return u.toString();
  }catch{return null}
 }
+// Only opt-in browser companions can provide timing for supported HTML5 elements.
+// The server never reads, relays, proxies, or identifies copyrighted video streams.
+function flexflixHost(url){
+ try{const u=new URL(url);return u.protocol==='https:'&&
+  ['flexflix.site','www.flexflix.site'].includes(u.hostname.toLowerCase())}catch{return false}
+}
 const roomOf=s=>{const r=rooms.get(s.data.room);return r?.users.has(s.id)?r:null};
-const state=r=>({source:r.source||'youtube',websiteUrl:r.websiteUrl||'',video:r.video,playing:r.source==='website'?false:r.playing,position:r.position+(r.playing&&r.source!=='website'?(Date.now()-r.at)/1000:0),version:r.version});
+const websiteTimeline=r=>{
+ const t=r.websiteTimeline;
+ if(!t||r.source!=='website')return null;
+ const now=Date.now();
+ return {position:Math.max(0,Math.min(86400,t.position+(t.playing?(now-t.at)/1000:0))),
+  playing:t.playing,version:r.version,receivedAt:now};
+};
+const state=r=>({source:r.source||'youtube',websiteUrl:r.websiteUrl||'',video:r.video,
+ playing:r.source==='website'?false:r.playing,
+ position:r.position+(r.playing&&r.source!=='website'?(Date.now()-r.at)/1000:0),
+ version:r.version,websiteLeader:r.websiteLeader||null,websiteTimeline:websiteTimeline(r)});
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
 const callMembers=r=>[...r.callUsers].map(([id,meta])=>({id,role:meta.role,sharing:!!meta.sharing}));
 const publishCall=r=>io.to(r.id).emit('call:members',callMembers(r));
-function newRoom(id){return {id,users:new Map(),source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
+function newRoom(id){return {id,users:new Map(),websiteLeader:null,websiteTimeline:null,source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
 setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
 
 function leaveCall(s) {
@@ -149,25 +165,27 @@ function leaveCall(s) {
  s.to(r.id).emit('call:peer-left',{id:s.id});
  publishCall(r);
 }
-function leave(s){leaveCall(s);const r=roomOf(s);if(!r)return;r.users.delete(s.id);s.leave(r.id);s.data.room=null;io.to(r.id).emit('members',members(r));if(!r.users.size)r.emptySince=Date.now()}
+function leave(s){leaveCall(s);const r=roomOf(s);if(!r)return;r.users.delete(s.id);s.leave(r.id);s.data.room=null;
+ if(r.websiteLeader===s.id){r.websiteLeader=r.users.keys().next().value||null;r.websiteTimeline=null;io.to(r.id).emit('state',state(r))}
+ io.to(r.id).emit('members',members(r));if(!r.users.size)r.emptySince=Date.now()}
 io.on('connection',s=>{
-s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r=newRoom(id);rooms.set(id,r);r.users.set(s.id,safeName(d?.name));s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[],queue:[]})});
+s.on('create',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before creating a room'});if(roomOf(s))return ack({error:'Already in a room'});const id=randomBytes(12).toString('hex'),r=newRoom(id);rooms.set(id,r);r.users.set(s.id,safeName(d?.name));r.websiteLeader=s.id;s.data.room=id;s.join(id);ack({id,state:state(r),members:members(r),messages:[],callMembers:[],queue:[]})});
 s.on('join',(d,ack)=>{if(typeof ack!=='function')return;if(!safeName(d?.name))return ack({error:'Enter your name before joining'});let r=validRoom(d?.id)?rooms.get(d.id):null;
  if(!r&&validRoom(d?.id)){r=newRoom(d.id);rooms.set(d.id,r)}
- if(!r)return ack({error:'Invalid room link'});if(r.users.size>=MAX_ROOM_PARTICIPANTS)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:callMembers(r),queue:r.queue});io.to(r.id).emit('members',members(r))});
+ if(!r)return ack({error:'Invalid room link'});if(r.users.size>=MAX_ROOM_PARTICIPANTS)return ack({error:'Room full'});if(roomOf(s))leave(s);r.users.set(s.id,safeName(d.name));if(!r.websiteLeader)r.websiteLeader=s.id;s.data.room=r.id;s.join(r.id);ack({id:r.id,state:state(r),members:members(r),messages:r.messages,callMembers:callMembers(r),queue:r.queue});io.to(r.id).emit('members',members(r))});
 s.on('room:rename',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Not in a room'});
  const newName=safeName(d?.name);if(!newName)return ack?.({error:'Name is required'});
  r.users.set(s.id,newName);io.to(r.id).emit('members',members(r));
  ack?.({ok:true});
 });
-s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
 s.on('website',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const websiteUrl=validateWebsiteUrl(d?.url);
  if(!websiteUrl)return ack?.({error:'Enter a public HTTPS website URL without passwords or access tokens'});
- r.source='website';r.websiteUrl=websiteUrl;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ r.source='website';r.websiteUrl=websiteUrl;r.websiteTimeline=null;r.playing=false;r.position=0;r.at=Date.now();r.version++;
  io.to(r.id).emit('state',state(r));ack?.({ok:true});
 });
 s.on('discover:search',async(d,ack)=>{
@@ -193,7 +211,7 @@ s.on('queue:add',(d,ack)=>{
 s.on('queue:play',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Video not found in queue'});
- const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
  io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
 });
 s.on('queue:remove',(d,ack)=>{
@@ -203,6 +221,20 @@ s.on('queue:remove',(d,ack)=>{
 });
 s.on('playback',d=>{const r=roomOf(s);if(!r||r.source==='website'||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
 s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
+s.on('website:sample',(d,ack)=>{
+ const r=roomOf(s);
+ if(!r||r.source!=='website'||!flexflixHost(r.websiteUrl))return ack?.({error:'No supported shared website'});
+ if(r.websiteLeader!==s.id)return ack?.({error:'Only the room owner can set the website timeline'});
+ if(d?.version!==r.version||!Number.isFinite(d?.position)||d.position<0||d.position>86400||
+    typeof d.playing!=='boolean')return ack?.({error:'Invalid playback position'});
+ const now=Date.now();
+ if(now-(s.data.websiteSampleAt||0)<650)return ack?.({error:'Too many timing updates'});
+ s.data.websiteSampleAt=now;
+ r.websiteTimeline={position:d.position,playing:d.playing,at:now};
+ io.to(r.id).emit('website:timeline',{leader:r.websiteLeader,version:r.version,
+  timeline:websiteTimeline(r)});
+ ack?.({ok:true});
+});
 function sendChat(d,ack){
  const r=roomOf(s);
  if(!r){ack?.({error:'You are not connected to a room'});return}
