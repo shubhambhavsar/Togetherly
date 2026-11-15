@@ -358,12 +358,84 @@ test('website iframe is sandboxed and explicitly labels unsynchronized viewing',
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
  assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
- assert.ok(html.includes('/website-player.css?v=1'));
- assert.ok(html.includes("Don't enter passwords inside an embedded page."));
+ assert.ok(html.includes('/website-player.css?v=2'));
+ assert.ok(html.includes('Never enter passwords in an embedded page.'));
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
  assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
- assert.ok(frontend.includes("frame.getAttribute('src')!==url.toString()"),'Recurring room sync must not reload the external website');
+ assert.ok(frontend.includes("frame.getAttribute('src')!==target"),'Recurring room sync must not reload the external website');
  assert.ok(frontend.includes("if(frame.hasAttribute('src'))frame.removeAttribute('src')"),'Returning to YouTube should unload external page');
  assert.ok(frontend.includes("lastState?.source==='website'"),'Ignore YouTube player events while website mode is active');
  assert.ok(css.includes('website-mode #player'),'YouTube player must be hidden while website mode is active');
+});
+
+test('website compatibility is local, opt-in, reversible, and resets on URL changes',()=>{
+ const frame={
+  attrs:new Map([['sandbox','allow-scripts allow-presentation']]),
+  actions:[],
+  hasAttribute(name){return this.attrs.has(name)},
+  getAttribute(name){return this.attrs.get(name)||null},
+  removeAttribute(name){this.actions.push('remove:'+name);this.attrs.delete(name)},
+  setAttribute(name,value){this.actions.push('set:'+name);this.attrs.set(name,value)}
+ };
+ const nodes=new Map();
+ const node=id=>{
+  if(id==='websiteFrame')return frame;
+  if(!nodes.has(id))nodes.set(id,{
+   value:'',href:'',textContent:'',
+   classList:{toggle(){},add(){},remove(){}}
+  });
+  return nodes.get(id)
+ };
+ const context={URL,window:{confirm:()=>context.allow},$:node,allow:false,lastState:null};
+ const begin=frontend.indexOf('const WEBSITE_FRAME_SANDBOX=');
+ const finish=frontend.indexOf('function applyState(s){',begin);
+ assert.ok(begin>0&&finish>begin,'Compatibility implementation missing');
+ const source=frontend.slice(begin,finish);
+ function evaluate(code){return vm.runInNewContext(source+'\n'+code,context)}
+ // One session: simulate initial render and rejected user confirmation.
+ const expected=evaluate(`
+  lastState={source:'website',websiteUrl:'https://example.org/movie'};
+  setWebsitePlayer(lastState);
+  const initial=[$('websiteFrame').getAttribute('sandbox'),$('websiteFrame').getAttribute('src')];
+  $('websiteCompatibility').onclick();
+  [initial,$('websiteFrame').getAttribute('sandbox'),$('websiteFrame').getAttribute('src')]
+ `);
+ assert.equal(expected[0][0],'allow-scripts allow-presentation');
+ assert.equal(expected[0][1],'https://example.org/movie');
+ assert.equal(expected[1],'allow-scripts allow-presentation','Declined opt-in must stay sandboxed');
+ assert.equal(expected[2],'https://example.org/movie');
+ // A separate evaluation of the same source emulates a new viewer, with consent accepted.
+ context.allow=true;
+ const accepted=evaluate(`
+  lastState={source:'website',websiteUrl:'https://example.org/movie'};
+  setWebsitePlayer(lastState);
+  $('websiteCompatibility').onclick();
+  const approved=[$('websiteFrame').hasAttribute('sandbox'),$('websiteFrame').getAttribute('src')];
+  const before=$('websiteFrame').actions.length;
+  setWebsitePlayer(lastState);
+  const repeat=$('websiteFrame').actions.length;
+  $('websiteRestoreSandbox').onclick();
+  const restored=[$('websiteFrame').getAttribute('sandbox'),$('websiteFrame').getAttribute('src')];
+  $('websiteCompatibility').onclick();
+  lastState={source:'website',websiteUrl:'https://another.example/next'};
+  setWebsitePlayer(lastState);
+  const switched=[$('websiteFrame').getAttribute('sandbox'),$('websiteFrame').getAttribute('src')];
+  lastState={source:'youtube',video:'M7lc1UVf-VE'};
+  setWebsitePlayer(lastState);
+  [approved,before,repeat,restored,switched,$('websiteFrame').getAttribute('src'),$('websiteFrame').getAttribute('sandbox')]
+ `);
+ assert.equal(accepted[0][0],false,'Only a confirmed per-device action should remove sandbox');
+ assert.equal(accepted[0][1],'https://example.org/movie');
+ assert.equal(accepted[1],accepted[2],'Recurring room updates must not reload page');
+ assert.equal(accepted[3][0],'allow-scripts allow-presentation','Restore protection must re-enable sandbox');
+ assert.equal(accepted[3][1],'https://example.org/movie','Restoring the sandbox must reload the same site');
+ assert.equal(accepted[4][0],'allow-scripts allow-presentation','A new website must revert to sandbox');
+ assert.equal(accepted[4][1],'https://another.example/next');
+ assert.equal(accepted[5],null,'Back to YouTube must unload external website');
+ assert.equal(accepted[6],'allow-scripts allow-presentation');
+ assert.ok(frontend.includes("$('websiteRestoreSandbox').onclick"),'User must be able to restore protection');
+ assert.ok(html.includes('id="websiteRestoreSandbox"')&&html.includes('id="websiteCompatibility"'));
+ assert.ok(html.includes('Try compatibility mode'));
+ assert.ok(frontend.includes('if(!window.confirm(message))return'),'Compatibility must require user consent');
+ assert.ok(!backend.includes('websiteCompatibilityFor'),'Compatibility must never persist on the room server');
 });

@@ -344,25 +344,79 @@ $('retryPlayer').onclick=()=>{
 };
 loadYouTubeAPI();
 function sendPlayback(action){if(!playerReady||applying||lastState?.source==='website')return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
+// External sites are sandboxed by default. Every browser must explicitly opt into
+// removing the sandbox for an individual exact URL; this never changes room state.
+const WEBSITE_FRAME_SANDBOX='allow-scripts allow-presentation';
+let websiteCompatibilityFor=null;
+function websiteRoomUrl(){
+ if(lastState?.source!=='website'||typeof lastState.websiteUrl!=='string')return null;
+ try{
+  const u=new URL(lastState.websiteUrl);
+  return u.protocol==='https:'?u.toString():null;
+ }catch{return null}
+}
+function loadWebsiteFrame(url,compatibility=false){
+ const frame=$('websiteFrame');
+ // Changing/removing a sandbox flag alone does not affect an already loaded
+ // document. Unload the old page, change policy, then perform a fresh navigation.
+ if(frame.hasAttribute('src'))frame.removeAttribute('src');
+ if(compatibility)frame.removeAttribute('sandbox');
+ else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
+ frame.setAttribute('src',url);
+}
+function updateWebsiteCompatibilityControls(url){
+ const enabled=!!url&&websiteCompatibilityFor===url;
+ $('websiteCompatibility').classList.toggle('hidden',enabled);
+ $('websiteRestoreSandbox').classList.toggle('hidden',!enabled);
+ $('websiteModeStatus').textContent=enabled
+  ?'Compatibility mode on this device · Playback is not synchronized'
+  :'Protected preview · Playback is not synchronized';
+}
 function setWebsitePlayer(s){
  const external=s?.source==='website'&&typeof s.websiteUrl==='string'&&s.websiteUrl.startsWith('https://');
- const shell=$('videoShell');
+ const shell=$('videoShell'),frame=$('websiteFrame');
  shell.classList.toggle('website-mode',external);
  $('websitePlayer').classList.toggle('hidden',!external);
  if(external){
   const url=new URL(s.websiteUrl);
+  const target=url.toString();
   $('websiteHost').textContent=url.hostname;
-  $('openWebsite').href=url.toString();
-  $('websiteURL').value=url.toString();
-  // Avoid reloading the external page on every Socket.IO sync.
-  const frame=$('websiteFrame');
-  if(frame.getAttribute('src')!==url.toString())frame.setAttribute('src',url.toString());
+  $('openWebsite').href=target;
+  $('websiteURL').value=target;
+  // A different shared URL always reverts to the protected iframe.
+  if(frame.getAttribute('src')!==target){
+   websiteCompatibilityFor=null;
+   loadWebsiteFrame(target,false);
+  }
+  updateWebsiteCompatibilityControls(target);
  }else{
-  const frame=$('websiteFrame');
+  websiteCompatibilityFor=null;
   if(frame.hasAttribute('src'))frame.removeAttribute('src');
+  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
+  updateWebsiteCompatibilityControls(null);
  }
  return external
 }
+$('websiteCompatibility').onclick=()=>{
+ const url=websiteRoomUrl();
+ if(!url)return;
+ const host=new URL(url).hostname;
+ const message='Compatibility mode will load '+host+' without Togetherly iframe sandbox restrictions on this device.\n\n'
+  +'The external site could open popups, request sign-in, or try to navigate you away. '
+  +'Only continue if you trust this website and have permission to view its content. '
+  +'This does not synchronize third-party playback or bypass website protections.\n\nContinue?';
+ if(!window.confirm(message))return;
+ websiteCompatibilityFor=url;
+ loadWebsiteFrame(url,true);
+ updateWebsiteCompatibilityControls(url);
+};
+$('websiteRestoreSandbox').onclick=()=>{
+ const url=websiteRoomUrl();
+ if(!url)return;
+ websiteCompatibilityFor=null;
+ loadWebsiteFrame(url,false);
+ updateWebsiteCompatibilityControls(url);
+};
 function applyState(s){
  if(!s)return;
  const old=lastState;
