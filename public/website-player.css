@@ -65,3 +65,31 @@
   max-width:calc(100% - 80px);max-height:52%;
  }
 }
+
+/* Safety controls stay above an unrestricted third-party iframe and are local to the viewer. */
+#videoShell.website-mode .website-player-stopped-fallback{display:none}
+#videoShell.website-mode .website-stopped:not(.hidden){
+ display:flex!important;position:absolute;inset:0;z-index:2;
+ align-items:center;justify-content:center;flex-direction:column;gap:8px;
+ padding:22px 16px 68px;text-align:center;
+ background:linear-gradient(150deg,#0d1a2c,#050a12);
+ color:#f4f1eb;
+}
+#videoShell.website-mode .website-stopped-icon{font-size:29px}
+#videoShell.website-mode .website-stopped strong{font-size:15px}
+#videoShell.website-mode .website-stopped p{font-size:12px;line-height:1.5;color:#b8cbdc;max-width:410px;margin:0}
+#videoShell.website-mode .website-stopped p strong{font-size:inherit;color:#f4f1eb}
+#videoShell.website-mode .website-player-warning{z-index:4}
+#videoShell .website-player-actions #websiteStop{
+ border-color:#a98179;background:#422b2d;color:#ffe4df;
+}
+#videoShell .website-player-actions #websiteStop:hover{background:#5b3237}
+#videoShell .website-player-actions #websiteResume{
+ border-color:#92ab9b;background:#243a32;color:#e2ffe9;
+}
+#videoShell .website-player-actions #websiteResume:hover{background:#315044}
+#videoShell.website-mode .website-stopped.hidden{display:none!important}
+@media(max-width:700px){
+ #videoShell.website-mode .website-stopped:not(.hidden){padding:18px 12px 86px}
+ #videoShell.website-mode .website-stopped p{font-size:10px}
+}
