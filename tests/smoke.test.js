@@ -414,20 +414,25 @@ test('website compatibility is local, opt-in, reversible, and resets on URL chan
   const before=$('websiteFrame').actions.length;
   setWebsitePlayer(lastState);
   const repeat=$('websiteFrame').actions.length;
+  $('websiteRestoreSandbox').onclick();
+  const restored=[$('websiteFrame').getAttribute('sandbox'),$('websiteFrame').getAttribute('src')];
+  $('websiteCompatibility').onclick();
   lastState={source:'website',websiteUrl:'https://another.example/next'};
   setWebsitePlayer(lastState);
   const switched=[$('websiteFrame').getAttribute('sandbox'),$('websiteFrame').getAttribute('src')];
   lastState={source:'youtube',video:'M7lc1UVf-VE'};
   setWebsitePlayer(lastState);
-  [approved,before,repeat,switched,$('websiteFrame').getAttribute('src'),$('websiteFrame').getAttribute('sandbox')]
+  [approved,before,repeat,restored,switched,$('websiteFrame').getAttribute('src'),$('websiteFrame').getAttribute('sandbox')]
  `);
  assert.equal(accepted[0][0],false,'Only a confirmed per-device action should remove sandbox');
  assert.equal(accepted[0][1],'https://example.org/movie');
  assert.equal(accepted[1],accepted[2],'Recurring room updates must not reload page');
- assert.equal(accepted[3][0],'allow-scripts allow-presentation','A new website must revert to sandbox');
- assert.equal(accepted[3][1],'https://another.example/next');
- assert.equal(accepted[4],null,'Back to YouTube must unload external website');
- assert.equal(accepted[5],'allow-scripts allow-presentation');
+ assert.equal(accepted[3][0],'allow-scripts allow-presentation','Restore protection must re-enable sandbox');
+ assert.equal(accepted[3][1],'https://example.org/movie','Restoring the sandbox must reload the same site');
+ assert.equal(accepted[4][0],'allow-scripts allow-presentation','A new website must revert to sandbox');
+ assert.equal(accepted[4][1],'https://another.example/next');
+ assert.equal(accepted[5],null,'Back to YouTube must unload external website');
+ assert.equal(accepted[6],'allow-scripts allow-presentation');
  assert.ok(frontend.includes("$('websiteRestoreSandbox').onclick"),'User must be able to restore protection');
  assert.ok(html.includes('id="websiteRestoreSandbox"')&&html.includes('id="websiteCompatibility"'));
  assert.ok(html.includes('Try compatibility mode'));
