@@ -358,11 +358,11 @@ test('website iframe is sandboxed and explicitly labels unsynchronized viewing',
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
  assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
- assert.ok(html.includes('/website-player.css?v=2'));
+ assert.ok(html.includes('/website-player.css?v=4'));
  assert.ok(html.includes('Never enter passwords in an embedded page.'));
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
  assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
- assert.ok(frontend.includes("frame.getAttribute('src')!==target"),'Recurring room sync must not reload the external website');
+ assert.ok(frontend.includes('if(websiteSelectedUrl!==target)'), 'Recurring room sync must not reload the external website');
  assert.ok(frontend.includes("if(frame.hasAttribute('src'))frame.removeAttribute('src')"),'Returning to YouTube should unload external page');
  assert.ok(frontend.includes("lastState?.source==='website'"),'Ignore YouTube player events while website mode is active');
  assert.ok(css.includes('website-mode #player'),'YouTube player must be hidden while website mode is active');
@@ -386,7 +386,7 @@ test('website compatibility is local, opt-in, reversible, and resets on URL chan
   });
   return nodes.get(id)
  };
- const context={URL,window:{confirm:()=>context.allow},$:node,allow:false,lastState:null};
+ const context={URL,window:{confirm:()=>context.allow,addEventListener(){},removeEventListener(){}},$:node,allow:false,lastState:null};
  const begin=frontend.indexOf('const WEBSITE_FRAME_SANDBOX=');
  const finish=frontend.indexOf('function applyState(s){',begin);
  assert.ok(begin>0&&finish>begin,'Compatibility implementation missing');
@@ -438,4 +438,133 @@ test('website compatibility is local, opt-in, reversible, and resets on URL chan
  assert.ok(html.includes('Try compatibility mode'));
  assert.ok(frontend.includes('if(!window.confirm(message))return'),'Compatibility must require user consent');
  assert.ok(!backend.includes('websiteCompatibilityFor'),'Compatibility must never persist on the room server');
+});
+
+test('website safety controls stop unsafe embeds without disconnecting the room',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="websiteStop"')&&html.includes('id="websiteResume"'));
+ assert.ok(html.includes('id="websiteStopped"'));
+ assert.ok(html.includes('rel="noopener noreferrer nofollow"'));
+ assert.ok(html.includes('referrerpolicy="no-referrer"'));
+ assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
+ assert.ok(css.includes('.website-player-warning{z-index:4}'));
+ assert.ok(backend.includes('geolocation=()')&&backend.includes('clipboard-write=(self)'));
+ assert.ok(backend.includes('camera=(self), microphone=(self)'));
+ assert.ok(!backend.includes('websiteStoppedFor'),'Stop and compatibility must stay local, not affect the shared room state');
+ const events=new Map(),responses=[],classes=new Map();
+ const frame={attrs:new Map([['sandbox','allow-scripts allow-presentation']]),actions:[],
+  hasAttribute(k){return this.attrs.has(k)},
+  getAttribute(k){return this.attrs.get(k)||null},
+  setAttribute(k,v){this.attrs.set(k,v);this.actions.push('set:'+k)},
+  removeAttribute(k){this.attrs.delete(k);this.actions.push('remove:'+k)}
+ };
+ const nodes=new Map();
+ const element=id=>{
+  if(id==='websiteFrame')return frame;
+  if(!nodes.has(id)){
+   const flags=new Set();
+   nodes.set(id,{
+    value:'',href:'',textContent:'',
+    classList:{toggle:(key,on)=>on?flags.add(key):flags.delete(key),contains:k=>flags.has(k)}
+   });
+  }
+  return nodes.get(id)
+ };
+ let allowed=false;
+ const pageWindow={
+  confirm:()=>allowed,
+  addEventListener:(type,listener)=>{events.set(type,listener)},
+  removeEventListener:(type,listener)=>{if(events.get(type)===listener)events.delete(type)}
+ };
+ const context={URL,window:pageWindow,$:element,toast:text=>responses.push(text),lastState:null};
+ const begin=frontend.indexOf('const WEBSITE_FRAME_SANDBOX='),end=frontend.indexOf('function applyState(s){',begin);
+ assert.ok(begin>0&&end>begin,'Safety code must exist in shared player state handler');
+ const code=frontend.slice(begin,end);
+ vm.runInNewContext(code+`
+   lastState={source:'website',websiteUrl:'https://video.example/movie'};
+   setWebsitePlayer(lastState);
+ `,{...context});
+ assert.equal(frame.getAttribute('sandbox'),'allow-scripts allow-presentation');
+ assert.equal(frame.getAttribute('src'),'https://video.example/movie');
+ assert.equal(events.has('beforeunload'),false,'Protected preview should not warn on normal navigation');
+ // Each evaluation uses a fresh context. This one exercises an uninterrupted
+ // real viewer session from open through opt-in, stop, and resume.
+ allowed=true;frame.attrs.clear();frame.attrs.set('sandbox','allow-scripts allow-presentation');
+ events.clear();nodes.clear();frame.actions=[];
+ const notes=[];
+ vm.runInNewContext(code+`
+  lastState={source:'website',websiteUrl:'https://video.example/movie'};
+  setWebsitePlayer(lastState);
+  $('websiteCompatibility').onclick();
+  note('compat',[$('websiteFrame').hasAttribute('sandbox'),hasGuard()]);
+  let prevented=false,ev={preventDefault:()=>prevented=true,returnValue:null};
+  onGuard(ev);
+  note('warning',[prevented,ev.returnValue]);
+  let before=$('websiteFrame').actions.length;
+  setWebsitePlayer(lastState);
+  note('sync',[$('websiteFrame').actions.length===before]);
+  $('websiteStop').onclick();
+  note('stopped',[
+   $('websiteFrame').getAttribute('src'),
+   $('websiteFrame').getAttribute('sandbox'),
+   hasGuard(),
+   $('websiteStopped').classList.contains('hidden'),
+   $('websiteResume').classList.contains('hidden')
+  ]);
+  before=$('websiteFrame').actions.length;
+  setWebsitePlayer(lastState);
+  note('staysStopped',[$('websiteFrame').actions.length===before]);
+  $('websiteResume').onclick();
+  note('resumed',[$('websiteFrame').getAttribute('src'),$('websiteFrame').getAttribute('sandbox'),hasGuard()]);
+  $('websiteCompatibility').onclick();
+  lastState={source:'website',websiteUrl:'https://different.example/new'};
+  setWebsitePlayer(lastState);
+  note('newSite',[$('websiteFrame').getAttribute('sandbox'),hasGuard(),$('websiteFrame').getAttribute('src')]);
+  $('websiteStop').onclick();
+  lastState={source:'youtube'};
+  setWebsitePlayer(lastState);
+  note('youtube',[$('websiteFrame').getAttribute('src'),hasGuard()]);
+ `,{...context,
+    note:(key,value)=>notes.push([key,value]),
+    hasGuard:()=>events.has('beforeunload'),
+    onGuard:e=>events.get('beforeunload')?.(e)
+ });
+ const results=Object.fromEntries(notes.map(([key,value])=>[key,Array.from(value)]));
+ assert.deepEqual(results.compat,[false,true],'Compatibility opt-in should remove sandbox and register exit guard');
+ assert.deepEqual(results.warning,[true,true],'The exit guard should request a native browser leave confirmation');
+ assert.deepEqual(results.sync,[true],'Repeated room state must not reload an active movie');
+ assert.deepEqual(results.stopped,[null,'allow-scripts allow-presentation',false,false,false],'Emergency stop must unload and restore sandbox');
+ assert.deepEqual(results.staysStopped,[true],'Normal sync must not restart a stopped website');
+ assert.deepEqual(results.resumed,['https://video.example/movie','allow-scripts allow-presentation',false],'Resume must return to safe mode');
+ assert.deepEqual(results.newSite,['allow-scripts allow-presentation',false,'https://different.example/new']);
+ assert.deepEqual(results.youtube,[null,false],'YouTube must remove the external website and guard');
+ assert.ok(responses.some(v=>v.includes('External website stopped')),'Stop should acknowledge the action');
+ assert.ok(frontend.includes("setWebsiteExitGuard(false);leaveCall();location.href='/'"),'Deliberately leaving Togetherly should bypass unexpected-navigation warning');
+});
+
+test('optional FlexFlix suggestion only prefills the URL, with explicit sharing and third-party warning',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="suggestFlexflix"'),'Suggestion button must exist');
+ assert.ok(html.includes('https://flexflix.site/'),'Show the exact website the user supplied');
+ assert.ok(html.includes('Unverified third-party site'),'Do not imply endorsement or verified licensing');
+ assert.ok(html.includes('not affiliated'),'Disclose that Togetherly is not affiliated');
+ assert.ok(css.includes('.website-suggestion-button'),'The suggested link needs a visible control');
+ const script=frontend.match(/\$\('suggestFlexflix'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/)?.[0];
+ assert.ok(script,'Suggestion handler missing');
+ let focused=false,loaded=false,feedback='';
+ const field={value:'',focus(){focused=true}};
+ const suggestion={onclick:null};
+ const elems={suggestFlexflix:suggestion,websiteURL:field};
+ vm.runInNewContext(script,{
+  $:id=>elems[id],
+  notice:message=>{feedback=message},
+  socket:{emit(){loaded=true}}
+ });
+ suggestion.onclick();
+ assert.equal(field.value,'https://flexflix.site/');
+ assert.equal(focused,true);
+ assert.equal(loaded,false,'Clicking suggestion must never broadcast or load a website');
+ assert.match(feedback,/choose Show website/i);
+ assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'User still must submit the normal shared URL form');
+ assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
 });

@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/bluehour.css?v=1">
 <link rel="stylesheet" href="/layout-fixes.css?v=2">
 <link rel="stylesheet" href="/simplify.css?v=1"><link rel="stylesheet" href="/cinema-dock.css?v=1">
-<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=2">
+<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=4">
 </head>
 <body>
 <header class="site-header">
@@ -62,12 +62,20 @@
               sandbox="allow-scripts allow-presentation"
               allow="autoplay; fullscreen"
               referrerpolicy="no-referrer" loading="eager"></iframe>
+            <div id="websiteStopped" class="website-stopped hidden" role="status">
+              <span class="website-stopped-icon" aria-hidden="true">🛡</span>
+              <strong>Website stopped on your device</strong>
+              <p>External page activity has been halted here. Your Togetherly room and camera connection remain active.</p>
+              <p>Use <strong>Reopen protected</strong> below to try again.</p>
+            </div>
             <div class="website-player-warning">
               <span id="websiteHost">External website</span>
               <span id="websiteModeStatus" role="status" aria-live="polite">Protected preview · Playback is not synchronized</span>
               <div class="website-player-actions">
                 <button id="websiteCompatibility" type="button" title="Allow this website to load without the iframe sandbox on this device only">Try compatibility mode</button>
                 <button id="websiteRestoreSandbox" class="hidden" type="button" title="Restore the protected iframe preview">Restore protection</button>
+                <button id="websiteStop" type="button" title="Immediately unload the external website on this device">Stop website</button>
+                <button id="websiteResume" class="hidden" type="button" title="Reopen this shared URL with the default protected iframe">Reopen protected</button>
                 <a id="openWebsite" href="https://example.org/" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer">Open in browser ↗</a>
               </div>
             </div>
@@ -125,7 +133,12 @@
               placeholder="https://example.com/video" maxlength="500">
             <button id="openWebsiteInRoom" class="secondary-button small" type="submit">Show website</button>
           </form>
-          <p class="website-source-help">Playback blocked by iframe sandbox? In the player, choose <strong>Try compatibility mode</strong>, then confirm for this device. Only use trusted websites with permission to show their content. Never enter passwords in an embedded page. If it still fails, open the site in your browser.</p>
+          <div class="website-suggestions" aria-label="Optional third-party website links">
+            <span class="website-suggestions-label">LINK SUGGESTION</span>
+            <button id="suggestFlexflix" class="website-suggestion-button" type="button" aria-label="Fill the FlexFlix website address">Use FlexFlix link</button>
+            <span class="website-suggestion-note">https://flexflix.site/ · Unverified third-party site. May contain ads or popups; Togetherly is not affiliated.</span>
+          </div>
+          <p class="website-source-help">If a site blocks the protected iframe, <strong>Try compatibility mode</strong> only when you trust it. You can choose <strong>Stop website</strong> to unload it immediately without leaving the room. Browser-level popup protection is still recommended; some external redirects cannot be fully blocked by Togetherly. Never enter passwords in an embedded page.</p>
         </div>
         <div class="notice" id="notice" aria-live="polite"></div>
       </div>
@@ -195,6 +208,6 @@
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=13"></script>
+<script src="/app.js?v=15"></script>
 </body>
 </html>
