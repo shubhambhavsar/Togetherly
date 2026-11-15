@@ -111,3 +111,21 @@
  #videoShell.website-mode .website-stopped:not(.hidden){padding:18px 12px 86px}
  #videoShell.website-mode .website-stopped p{font-size:10px}
 }
+
+/* Optional per-viewer timing companion; never claims access to arbitrary iframes. */
+.website-sync-panel{
+ margin-top:11px;padding:12px;border-radius:9px;
+ background:rgba(21,43,60,.68);border:1px solid rgba(120,156,180,.42);
+}
+.website-sync-heading{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.website-sync-heading strong{font-size:13px;color:#e4f2fb}
+.website-sync-heading span{font-size:10px;color:#9fbacb}
+.website-sync-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:9px}
+#websiteSyncToggle{white-space:nowrap}
+#websiteSyncToggle:disabled{opacity:.46;cursor:not-allowed}
+#websiteSyncInstall{color:#e9c595;font-size:11px;text-decoration:underline}
+#websiteSyncStatus{font-size:11px;color:#afc8d6;line-height:1.45;flex:1;min-width:170px}
+@media(max-width:700px){
+ .website-sync-panel{padding:10px}
+ #websiteSyncStatus{flex-basis:100%}
+}
