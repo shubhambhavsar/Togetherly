@@ -3,9 +3,7 @@
   "name": "Togetherly Movie Sync Companion",
   "version": "0.1.0",
   "description": "Opt-in watch-party timing for accessible HTML5 video players on FlexFlix inside Togetherly. No stream downloads or ad filtering.",
-  "permissions": [
-    "tabs"
-  ],
+  "permissions": [],
   "background": {
     "service_worker": "service-worker.js"
   },
