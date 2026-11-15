@@ -289,6 +289,13 @@ document.addEventListener('fullscreenchange',()=>{
 });
 
 $('load').onclick=()=>{if(!room)return;socket.emit('video',{url:$('videoURL').value},d=>{if(d?.error)toast(d.error)})};
+// This suggestion only pre-fills the form. It never navigates or starts a
+// third-party page until a room member explicitly chooses Show website.
+$('suggestFlexflix').onclick=()=>{
+ $('websiteURL').value='https://flexflix.site/';
+ $('websiteURL').focus();
+ notice('Third-party website selected. Review the address and choose Show website to share it.');
+};
 $('websiteForm').onsubmit=event=>{
  event.preventDefault();
  if(!room)return toast('Join a room first');
