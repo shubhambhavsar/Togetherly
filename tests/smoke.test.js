@@ -303,3 +303,67 @@ test('room capacity is eight participants without a global room count limit',asy
  assert.ok(backend.includes('const MAX_ROOM_PARTICIPANTS=8'));
  assert.ok(!backend.includes('const MAX_ROOMS'),'No global room cap is configured');
 });
+
+test('shared HTTPS website source is validated, broadcast, and switched back to YouTube',async()=>{
+ let connect;const outbound=[];
+ class FakeIO{on(event,fn){if(event==='connection')connect=fn}to(roomId){return{emit:(event,data)=>outbound.push({roomId,event,data})}}}
+ const express=()=>({disable(){},use(){},get(){}});express.static=()=>()=>{};
+ const fakeRequire=id=>id==='express'?express:id==='http'?{createServer:()=>({listen(){}})}:
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'c'.repeat(n*2)})}:
+  id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ vm.runInNewContext(backend,{require:fakeRequire,URL:require('node:url').URL,process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
+ function client(id){
+  const handlers={},socket={id,data:{},on:(event,fn)=>handlers[event]=fn,join(){},leave(){},
+   to:()=>({emit:(event,data)=>outbound.push({roomId:'other',event,data})}),
+   emit:(event,data)=>outbound.push({roomId:id,event,data})};
+  connect(socket);
+  return {ask:(event,data)=>new Promise(resolve=>handlers[event](data,resolve)),fire:(event,data)=>handlers[event](data)};
+ }
+ const a=client('owner'),b=client('guest');
+ assert.match((await a.ask('website',{url:'https://flex.movie'})).error,/Join the room first/);
+ const room=await a.ask('create',{name:'Owner'});
+ assert.equal(room.state.source,'youtube');
+ await b.ask('join',{id:room.id,name:'Guest'});
+ for(const invalid of [
+   'javascript:alert(1)','http://flex.movie','https://localhost/video',
+   'https://127.0.0.1/movie','https://10.0.0.2/movie',
+   'https://internal.local','https://everydaygrove.ca/room/foo',
+   'https://user:secret@flex.movie/private',
+   'https://flex.movie/video?access_token=secret',
+   'https://flex.movie:444/video'
+  ]){
+   const reply=await a.ask('website',{url:invalid});
+   assert.match(reply.error,/public HTTPS website/i,'Unsafe URL accepted: '+invalid);
+ }
+ const preview=await a.ask('website',{url:'https://flex.movie/'});
+ assert.equal(preview.ok,true);
+ const last=outbound.filter(x=>x.event==='state').pop().data;
+ assert.equal(last.source,'website');
+ assert.equal(last.websiteUrl,'https://flex.movie/');
+ assert.equal(last.playing,false);
+ b.fire('sync');
+ assert.equal(outbound.at(-1).data.source,'website','Late joiners should see shared website state');
+ const youtube=await a.ask('video',{url:'https://youtu.be/M7lc1UVf-VE'});
+ assert.equal(youtube.ok,true);
+ const current=outbound.filter(x=>x.event==='state').pop().data;
+ assert.equal(current.source,'youtube');
+ assert.equal(current.websiteUrl,'');
+ assert.ok(backend.includes("r.source==='website'"),'Website mode must disable YouTube playback synchronization');
+});
+test('website iframe is sandboxed and explicitly labels unsynchronized viewing',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="websiteFrame"'));
+ assert.ok(html.includes('sandbox="allow-scripts allow-presentation"'),'The external iframe must not get top-level navigation, forms, popups, or its own origin');
+ assert.ok(!html.includes('sandbox="allow-scripts allow-same-origin'),'Untrusted sites must not receive same-origin access');
+ assert.ok(html.includes('referrerpolicy="no-referrer"'));
+ assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
+ assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
+ assert.ok(html.includes('/website-player.css?v=1'));
+ assert.ok(html.includes("Don't enter passwords inside an embedded page."));
+ assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
+ assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
+ assert.ok(frontend.includes("frame.getAttribute('src')!==url.toString()"),'Recurring room sync must not reload the external website');
+ assert.ok(frontend.includes("if(frame.hasAttribute('src'))frame.removeAttribute('src')"),'Returning to YouTube should unload external page');
+ assert.ok(frontend.includes("lastState?.source==='website'"),'Ignore YouTube player events while website mode is active');
+ assert.ok(css.includes('website-mode #player'),'YouTube player must be hidden while website mode is active');
+});

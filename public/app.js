@@ -20,7 +20,7 @@ function nickname(){return $('name').value.trim().slice(0,25)}
 function saveName(n){currentName=n;$('name').value=n;try{localStorage.setItem('togetherly.nickname',n)}catch{}}
 function requireName(){const n=nickname();if(!n){toast('Enter your name before joining');$('name').focus();return null}saveName(n);return n}
 $('rename').onclick=()=>{if(!room)return;const v=prompt('What name should others see?',currentName||nickname());if(v===null)return;const n=v.trim().slice(0,25);if(!n)return toast('Name cannot be empty');socket.emit('room:rename',{name:n},result=>{if(result?.ok){saveName(n);toast('Name updated')}else toast(result?.error||'Could not update name')})};
-function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();initPlayer();startSpectatorView()}
+function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();applyState(d.state);initPlayer();startSpectatorView()}
 function create(){const n=requireName();if(!n)return;socket.emit('create',{name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFromPath||room,name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
@@ -289,6 +289,18 @@ document.addEventListener('fullscreenchange',()=>{
 });
 
 $('load').onclick=()=>{if(!room)return;socket.emit('video',{url:$('videoURL').value},d=>{if(d?.error)toast(d.error)})};
+$('websiteForm').onsubmit=event=>{
+ event.preventDefault();
+ if(!room)return toast('Join a room first');
+ const value=$('websiteURL').value.trim();
+ if(!/^https:\/\//i.test(value))return toast('Enter a public HTTPS website address');
+ $('openWebsiteInRoom').disabled=true;
+ socket.timeout(9000).emit('website',{url:value},(error,ack)=>{
+  $('openWebsiteInRoom').disabled=false;
+  if(error||ack?.error)toast(ack?.error||'Could not share this website');
+ })
+};
+
 let ytScriptStarted=false,playerTimeout=null;
 function playerHelp(message,error=false){
  $('playerMessage').textContent=message;$('playerFallback').classList.remove('hidden');
@@ -310,7 +322,7 @@ function initPlayer(){
  playerHelp('Opening YouTube player…');
  try{player=new YT.Player('player',{width:'100%',height:'100%',videoId:lastState?.video||'M7lc1UVf-VE',playerVars:{playsinline:1,rel:0,fs:0,origin:location.origin},events:{
   onReady:e=>{playerReady=true;try{e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin')}catch{}playerReadyUI();applyState(lastState)},
-  onStateChange:e=>{if(applying||!room||!playerReady)return;if(e.data===YT.PlayerState.PLAYING)sendPlayback('play');else if(e.data===YT.PlayerState.PAUSED)sendPlayback('pause')},
+  onStateChange:e=>{if(applying||!room||!playerReady||lastState?.source==='website')return;if(e.data===YT.PlayerState.PLAYING)sendPlayback('play');else if(e.data===YT.PlayerState.PAUSED)sendPlayback('pause')},
   onAutoplayBlocked:()=>notice('Your browser blocked autoplay. Tap the YouTube player to start.'),
   onError:e=>{
    const blocked=[100,101,150].includes(e.data);
@@ -331,8 +343,57 @@ $('retryPlayer').onclick=()=>{
  if(!ytReady){document.getElementById('ytApiTag')?.remove();ytScriptStarted=false}playerHelp('Retrying YouTube…');loadYouTubeAPI();
 };
 loadYouTubeAPI();
-function sendPlayback(action){if(!playerReady||applying)return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
-function applyState(s){if(!s)return;const old=lastState;lastState=s;version=s.version;if(old?.video!==s.video)saveRecent({id:s.video,title:'YouTube video'});$('videoURL').value='https://www.youtube.com/watch?v='+s.video;$('youtubeLink').href=$('videoURL').value;if(!playerReady)return;applying=true;try{const video=player.getVideoData()?.video_id;if(video!==s.video){playerReadyUI();player.cueVideoById(s.video,s.position);notice('New video ready. Tap Play if your browser blocks autoplay.')}else{const t=player.getCurrentTime();if(Math.abs(t-s.position)>2.5)player.seekTo(s.position,true);const status=player.getPlayerState();if(s.playing&&status!==YT.PlayerState.PLAYING)player.playVideo();else if(!s.playing&&status===YT.PlayerState.PLAYING)player.pauseVideo()}$('syncLabel').textContent='Auto-sync on';if(old?.video!==s.video)$('videoURL').value='https://www.youtube.com/watch?v='+s.video}catch(e){console.warn('Player sync:',e)}finally{setTimeout(()=>applying=false,850)}}
+function sendPlayback(action){if(!playerReady||applying||lastState?.source==='website')return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
+function setWebsitePlayer(s){
+ const external=s?.source==='website'&&typeof s.websiteUrl==='string'&&s.websiteUrl.startsWith('https://');
+ const shell=$('videoShell');
+ shell.classList.toggle('website-mode',external);
+ $('websitePlayer').classList.toggle('hidden',!external);
+ if(external){
+  const url=new URL(s.websiteUrl);
+  $('websiteHost').textContent=url.hostname;
+  $('openWebsite').href=url.toString();
+  $('websiteURL').value=url.toString();
+  // Avoid reloading the external page on every Socket.IO sync.
+  const frame=$('websiteFrame');
+  if(frame.getAttribute('src')!==url.toString())frame.setAttribute('src',url.toString());
+ }else{
+  const frame=$('websiteFrame');
+  if(frame.hasAttribute('src'))frame.removeAttribute('src');
+ }
+ return external
+}
+function applyState(s){
+ if(!s)return;
+ const old=lastState;
+ lastState=s;version=s.version;
+ if(old?.video!==s.video&&s.source!=='website')saveRecent({id:s.video,title:'YouTube video'});
+ $('videoURL').value='https://www.youtube.com/watch?v='+s.video;
+ $('youtubeLink').href=$('videoURL').value;
+ if(setWebsitePlayer(s)){
+  // An embedded website is its own player; mute the former YouTube playback.
+  if(playerReady){applying=true;try{player.pauseVideo()}catch{}finally{setTimeout(()=>applying=false,850)}}
+  $('syncLabel').textContent='Shared website · playback not synchronized';
+  return
+ }
+ if(!playerReady)return;
+ applying=true;
+ try{
+  const video=player.getVideoData()?.video_id;
+  if(video!==s.video||old?.source==='website'){
+   playerReadyUI();player.cueVideoById(s.video,s.position);
+   notice('New video ready. Tap Play if your browser blocks autoplay.');
+  }else{
+   const t=player.getCurrentTime();
+   if(Math.abs(t-s.position)>2.5)player.seekTo(s.position,true);
+   const status=player.getPlayerState();
+   if(s.playing&&status!==YT.PlayerState.PLAYING)player.playVideo();
+   else if(!s.playing&&status===YT.PlayerState.PLAYING)player.pauseVideo()
+  }
+  $('syncLabel').textContent='Auto-sync on';
+ }catch(e){console.warn('Player sync:',e)}
+ finally{setTimeout(()=>applying=false,850)}
+}
 socket.on('state',applyState);
 // YouTube's own playback controls are the source of truth; keep synchronization automatic.
 setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')},22000);
@@ -342,7 +403,7 @@ socket.on('connect',()=>{
   leaveCall(false);
   socket.emit('join',{id:room,name:currentName||nickname()},d=>{
    if(d?.error){toast(d.error);notice('Could not rejoin room. Try opening the invitation link again.');return}
-   lastState=d.state;version=d.state.version;participants=d.members;callMembers=d.callMembers||[];
+   participants=d.members;callMembers=d.callMembers||[];applyState(d.state);
    roomQueue=d.queue||[];renderQueue();showMembers();updateChatConnection();socket.emit('sync');
    startSpectatorView();notice('Reconnected to your room.');
   });
