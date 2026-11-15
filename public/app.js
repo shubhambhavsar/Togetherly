@@ -308,6 +308,100 @@ $('websiteForm').onsubmit=event=>{
  })
 };
 
+// Movie timing requires a separately installed browser companion with access
+// to the actual HTML5 media element. Same-origin policy forbids direct iframe reads.
+const WEBSITE_SYNC_CHANNEL='togetherly-sync-v1';
+let websiteSyncActive=false,websiteCompanionSeen=false,websitePlayerSeenAt=0;
+let websiteSyncUrl='',websiteSyncTimeline=null,websiteSyncLastPublishAt=0;
+function supportsWebsiteSync(raw){
+ try{const u=new URL(raw);return u.protocol==='https:'&&
+  (u.hostname==='flexflix.site'||u.hostname==='www.flexflix.site')}catch{return false}
+}
+function websiteSyncReady(){
+ return !!room&&lastState?.source==='website'&&
+  supportsWebsiteSync(lastState.websiteUrl)&&
+  websiteStoppedFor!==lastState.websiteUrl;
+}
+function websiteSyncRole(){
+ return me&&lastState?.websiteLeader===me?'host':'guest';
+}
+function websiteSyncPost(action,payload={}){
+ window.postMessage({channel:WEBSITE_SYNC_CHANNEL,from:'page',action,...payload},location.origin);
+}
+function websiteSyncStatus(){
+ const btn=$('websiteSyncToggle'),status=$('websiteSyncStatus');
+ btn.setAttribute('aria-pressed',String(websiteSyncActive));
+ btn.textContent=websiteSyncActive?'Disable auto sync':'Enable auto sync';
+ btn.disabled=!websiteSyncReady();
+ if(!websiteSyncReady()){
+  status.textContent='Share a FlexFlix website in a room to enable optional sync.';return
+ }
+ if(!websiteSyncActive){
+  status.textContent='Off · Each viewer controls their own movie.';return
+ }
+ if(!websiteCompanionSeen){
+  status.textContent='Companion not detected. Install it on each desktop browser, then reload.';return
+ }
+ if(Date.now()-websitePlayerSeenAt>9000){
+  status.textContent='Looking for an accessible HTML5 player. External nested player frames may be unsupported.';return
+ }
+ status.textContent=websiteSyncRole()==='host'
+  ?'Host timing active · Broadcasting your movie position.'
+  :(websiteSyncTimeline?'Guest drift correction active.':'Connected · Waiting for the host timeline.');
+}
+function websiteSyncDisable(){
+ websiteSyncActive=false;websiteSyncTimeline=null;websitePlayerSeenAt=0;
+ websiteSyncPost('DISABLE');websiteSyncStatus();
+}
+$('websiteSyncToggle').onclick=()=>{
+ if(!websiteSyncReady())return;
+ if(websiteSyncActive){websiteSyncDisable();return}
+ websiteSyncActive=true;websiteCompanionSeen=false;websitePlayerSeenAt=0;
+ websiteSyncPost('HELLO');
+ websiteSyncPost('ENABLE',{role:websiteSyncRole()});
+ websiteSyncStatus();
+};
+window.addEventListener('message',event=>{
+ if(event.source!==window||event.origin!==location.origin)return;
+ const d=event.data;
+ if(d?.channel!==WEBSITE_SYNC_CHANNEL||d.from!=='companion')return;
+ if(d.type==='AVAILABLE'){websiteCompanionSeen=true;websiteSyncStatus();return}
+ if(!websiteSyncActive||!websiteSyncReady())return;
+ if(d.type==='SAMPLE'&&d.sample){
+  const sample=d.sample;
+  if(!Number.isFinite(sample.position)||sample.position<0||sample.position>86400||
+    typeof sample.playing!=='boolean')return;
+  websitePlayerSeenAt=Date.now();
+  if(websiteSyncRole()==='host'&&websitePlayerSeenAt-websiteSyncLastPublishAt>=1000){
+   websiteSyncLastPublishAt=websitePlayerSeenAt;
+   socket.emit('website:sample',{version,position:sample.position,playing:sample.playing});
+  }
+  websiteSyncStatus();return
+ }
+ if(d.type==='PLAY_BLOCKED')$('websiteSyncStatus').textContent='Tap Play on the movie once to allow browser playback.';
+});
+function websiteSyncTarget(timeline){
+ if(!websiteSyncActive||!websiteSyncReady()||websiteSyncRole()==='host')return;
+ if(timeline?.version!==version||!Number.isFinite(timeline.position))return;
+ websiteSyncTimeline=timeline;
+ websiteSyncPost('TARGET',{timeline:{
+  position:timeline.position,playing:timeline.playing,version:timeline.version
+ }});
+ websiteSyncStatus();
+}
+socket.on('website:timeline',d=>{
+ if(!d||d.version!==version)return;
+ websiteSyncTarget(d.timeline);
+});
+setInterval(()=>{
+ if(!websiteSyncReady())return;
+ websiteSyncPost('HELLO');
+ if(websiteSyncActive){
+  websiteSyncPost('ENABLE',{role:websiteSyncRole()});
+  websiteSyncStatus();
+ }
+},5000);
+
 let ytScriptStarted=false,playerTimeout=null;
 function playerHelp(message,error=false){
  $('playerMessage').textContent=message;$('playerFallback').classList.remove('hidden');
@@ -462,6 +556,7 @@ $('websiteStop').onclick=()=>{
  if(!url)return;
  websiteStoppedFor=url;
  websiteCompatibilityFor=null;
+ if(websiteSyncActive)websiteSyncDisable();
  unloadWebsiteFrame();
  updateWebsiteCompatibilityControls(url);
  toast('External website stopped on this device.');
@@ -478,6 +573,16 @@ function applyState(s){
  if(!s)return;
  const old=lastState;
  lastState=s;version=s.version;
+ const nextSyncUrl=s.source==='website'&&supportsWebsiteSync(s.websiteUrl)?s.websiteUrl:'';
+ if(websiteSyncUrl!==nextSyncUrl){
+  if(websiteSyncActive)websiteSyncDisable();
+  websiteSyncUrl=nextSyncUrl;websiteSyncTimeline=null;
+ }
+ if(websiteSyncActive&&websiteSyncReady()){
+  websiteSyncPost('ENABLE',{role:websiteSyncRole()});
+  if(s.websiteTimeline)websiteSyncTarget(s.websiteTimeline);
+ }
+ websiteSyncStatus();
  if(old?.video!==s.video&&s.source!=='website')saveRecent({id:s.video,title:'YouTube video'});
  $('videoURL').value='https://www.youtube.com/watch?v='+s.video;
  $('youtubeLink').href=$('videoURL').value;
@@ -525,6 +630,7 @@ socket.on('connect',()=>{
  }
 });
 socket.on('disconnect',()=>{
+ if(websiteSyncActive)websiteSyncPost('DISABLE');
  notice('Connection lost. Trying to reconnect…');
  $('syncLabel').textContent='Reconnecting…';
  updateChatConnection();leaveCall(false)
