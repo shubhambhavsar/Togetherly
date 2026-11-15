@@ -108,5 +108,15 @@ Security measures: public HTTPS URLs only, block IP/private hosts/internal domai
 
 Switch back to YouTube through the existing YouTube link and **Play now** controls or queue. The normal chat, camera tiles, and fullscreen exit remain unchanged. New room state fields `source` and `websiteUrl` live in process memory and will be lost on Render restart as before.
 
-### Pending fix (review-only)
-The compatibility opt-in is being prepared in a feature branch. **Do not merge or deploy until the user explicitly says `deploy`.** The current live website still uses sandbox-only preview mode.
+### Website safety additions (review-only)
+
+The current live site already offers compatibility mode and Restore protection. This change adds the following protections to the shared Website Player, without changing the server-side room URL or affecting other participants:
+
+- **Stop website:** Immediately unload the embedded page on the viewer's current device, restore sandbox defaults, and keep the room/chat/camera connected. Subsequent room sync events **do not reopen** the stopped page. **Reopen protected** reloads the same URL using the default sandbox. Sharing another website or returning to YouTube clears the stopped state.
+- **Best-effort navigation warning:** When a viewer expressly enables unrestricted compatibility mode, Togetherly registers a `beforeunload` listener to request a browser-native confirmation before the parent Togetherly tab navigates away. The listener is removed on Restore protection, Stop website, new shared URL, or YouTube. Togetherly's own Leave button disarms the warning first. **Browsers may ignore these confirmations** depending on browser, device, and prior interaction; they do not block popups or redirects reliably.
+- **Permissions-Policy hardening:** Keep camera and microphone permission restricted to the Togetherly origin, keep clipboard write available to Togetherly (for invite-link copying), and disallow unnecessary geolocation, payment, screen capture, clipboard reading, device/sensor APIs on the host page and descendant frames.
+- **Safe external fallback:** **Open in browser** retains `rel="noopener noreferrer nofollow"` and `referrerpolicy="no-referrer"` to avoid exposing the Togetherly page as an opener or passing room URLs as referrers.
+
+**Limitations:** An unsandboxed third-party frame still controls its own content and may open new tabs/popups or navigate using browser-permitted gestures. The parent page cannot reliably inspect cross-origin ads, block all popups, or intercept iframe-internal redirect chains. Use a browser-level popup blocker or reputable content blocker for stronger filtering. Do not attempt to evade the embedded website's own framing, access, DRM, or content rights restrictions.
+
+This change is **only on a review branch**. Do not merge or deploy until the user explicitly requests `deploy`.
