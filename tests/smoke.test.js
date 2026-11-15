@@ -358,7 +358,7 @@ test('website iframe is sandboxed and explicitly labels unsynchronized viewing',
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
  assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
- assert.ok(html.includes('/website-player.css?v=4'));
+ assert.ok(html.includes('/website-player.css?v=5'));
  assert.ok(html.includes('Never enter passwords in an embedded page.'));
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
  assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
@@ -446,7 +446,7 @@ test('website safety controls stop unsafe embeds without disconnecting the room'
  assert.ok(html.includes('id="websiteStopped"'));
  assert.ok(html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
- assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
+ assert.ok(html.includes('/website-player.css?v=5')&&html.includes('/app.js?v=16'));
  assert.ok(css.includes('.website-player-warning{z-index:4}'));
  assert.ok(backend.includes('geolocation=()')&&backend.includes('clipboard-write=(self)'));
  assert.ok(backend.includes('camera=(self), microphone=(self)'));
@@ -566,5 +566,89 @@ test('optional FlexFlix suggestion only prefills the URL, with explicit sharing 
  assert.equal(loaded,false,'Clicking suggestion must never broadcast or load a website');
  assert.match(feedback,/choose Show website/i);
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'User still must submit the normal shared URL form');
- assert.ok(html.includes('/website-player.css?v=4')&&html.includes('/app.js?v=15'));
+ assert.ok(html.includes('/website-player.css?v=5')&&html.includes('/app.js?v=16'));
+});
+
+test('FlexFlix uses default compatibility only on its exact HTTPS host while keeping safety controls',()=>{
+ const frame={attrs:new Map([['sandbox','allow-scripts allow-presentation']]),actions:[],
+  getAttribute(k){return this.attrs.get(k)||null},hasAttribute(k){return this.attrs.has(k)},
+  setAttribute(k,v){this.attrs.set(k,v);this.actions.push('set:'+k)},
+  removeAttribute(k){this.attrs.delete(k);this.actions.push('remove:'+k)}
+ };
+ const listeners=new Map(),elements=new Map();
+ const element=id=>{
+  if(id==='websiteFrame')return frame;
+  if(!elements.has(id)){
+   const classes=new Set();
+   elements.set(id,{href:'',value:'',textContent:'',onclick:null,
+    classList:{toggle:(k,on)=>on?classes.add(k):classes.delete(k),contains:k=>classes.has(k)}});
+  }
+  return elements.get(id)
+ };
+ const context={URL,$:element,lastState:null,toast(){},window:{
+  confirm:()=>true,
+  addEventListener:(name,fn)=>listeners.set(name,fn),
+  removeEventListener:(name,fn)=>{if(listeners.get(name)===fn)listeners.delete(name)}
+ }};
+ const begin=frontend.indexOf('const WEBSITE_FRAME_SANDBOX='),end=frontend.indexOf('function applyState(s){',begin);
+ assert.ok(begin>=0&&end>begin);
+ const js=frontend.slice(begin,end);
+ const result=vm.runInNewContext(js+`
+  const hosts=[
+   'https://flexflix.site/',
+   'https://www.flexflix.site/movie',
+   'https://FLEXFLIX.SITE/movie',
+   'https://flexflix.site.evil.com/movie',
+   'https://evilflexflix.site/movie',
+   'https://sub.flexflix.site/movie',
+   'https://another.example/movie',
+   'http://flexflix.site/movie',
+   'https://flexflix.site:8443/movie',
+   'https://someone:secret@flexflix.site/movie'
+  ].map(websiteDefaultsToCompatibility);
+  lastState={source:'website',websiteUrl:'https://flexflix.site/watch/movie'};
+  setWebsitePlayer(lastState);
+  const initial=[frame.getAttribute('sandbox'),frame.getAttribute('src'),listeners.has('beforeunload')];
+  const before=frame.actions.length;
+  setWebsitePlayer(lastState);
+  const unchanged=frame.actions.length===before;
+  $('websiteRestoreSandbox').onclick();
+  const restored=[frame.getAttribute('sandbox'),listeners.has('beforeunload')];
+  setWebsitePlayer(lastState);
+  const stayedProtected=frame.hasAttribute('sandbox');
+  $('websiteStop').onclick();
+  const stopped=[frame.hasAttribute('src'),frame.getAttribute('sandbox'),listeners.has('beforeunload')];
+  $('websiteResume').onclick();
+  const resumed=[frame.hasAttribute('sandbox'),listeners.has('beforeunload')];
+  lastState={source:'website',websiteUrl:'https://example.org/film'};
+  setWebsitePlayer(lastState);
+  const other=[frame.hasAttribute('sandbox'),listeners.has('beforeunload')];
+  lastState={source:'youtube'};
+  setWebsitePlayer(lastState);
+  [hosts,initial,unchanged,restored,stayedProtected,stopped,resumed,other,frame.hasAttribute('src')]
+ `,{...context,frame,listeners});
+ const normalize=x=>JSON.parse(JSON.stringify(x));
+ assert.deepEqual(normalize(result[0]),[true,true,true,false,false,false,false,false,false,false],'Default must be exact-host only');
+ assert.deepEqual(normalize(result[1]),[null,'https://flexflix.site/watch/movie',true],'FlexFlix should begin without iframe sandbox');
+ assert.equal(result[2],true,'Room sync should not reload movie');
+ assert.deepEqual(normalize(result[3]),['allow-scripts allow-presentation',false],'Users can restore protection');
+ assert.equal(result[4],true,'Restored protection must persist for the same URL');
+ assert.deepEqual(normalize(result[5]),[false,'allow-scripts allow-presentation',false],'Stop must unload external content');
+ assert.deepEqual(normalize(result[6]),[true,false],'Reopen protected must remain sandboxed');
+ assert.deepEqual(normalize(result[7]),[true,false],'Unrelated websites must default to sandboxed');
+ assert.equal(result[8],false,'Switching to YouTube must unload external iframe');
+ assert.ok(html.includes('id="websiteStop"')&&html.includes('id="websiteRestoreSandbox"'),'Safety and restore controls must remain');
+});
+test('website fullscreen can expand Togetherly stage with cameras and permit nested player fullscreen',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="websiteFrame"')&&html.includes('allow="autoplay; fullscreen *" allowfullscreen'),'The external iframe must permit native fullscreen and nested frames');
+ assert.ok(html.includes('id="websiteFullscreen"')&&html.includes('Fullscreen + cameras'));
+ assert.ok(frontend.includes("$('websiteFullscreen').onclick=toggleTheater"),'Web fullscreen should use the Togetherly stage and cameras');
+ assert.ok(frontend.includes("$('websiteFullscreen').textContent=active?'Exit Togetherly fullscreen':'Fullscreen + cameras'"));
+ assert.ok(frontend.includes("$('websiteFullscreen').setAttribute('aria-pressed',String(active))"));
+ assert.ok(frontend.includes("if(chatOpen)toggleChat(false)"),'Keep chat outside Togetherly fullscreen');
+ assert.ok(frontend.includes("theaterShell.requestFullscreen"),'Use existing browser fullscreen implementation');
+ assert.ok(css.includes('top:max(12px,env(safe-area-inset-top))!important'),'Fullscreen website controls should avoid the bottom player controls');
+ assert.ok(css.includes('#videoShell.website-mode #websiteFullscreen'),'Button should be visibly styled');
+ assert.ok(html.includes('may show ads or popups'),'Describe the added risks of default compatibility');
 });

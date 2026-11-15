@@ -111,3 +111,33 @@
  #videoShell.website-mode .website-stopped:not(.hidden){padding:18px 12px 86px}
  #videoShell.website-mode .website-stopped p{font-size:10px}
 }
+
+/* When Togetherly owns fullscreen, keep safety/fullscreen actions above the site
+   but away from the bottom movie controls and Togetherly Exit dock. */
+#videoShell.website-mode.theater-mode .website-player-warning{
+ top:max(12px,env(safe-area-inset-top))!important;
+ bottom:auto!important;left:12px!important;right:auto!important;
+ max-width:min(520px,50vw)!important;
+ max-height:32vh;overflow-y:auto;
+ align-content:flex-start;
+}
+#videoShell.website-mode #websiteFullscreen{
+ border-color:#9bc2db;background:#1b4154;color:#e9f6ff;
+}
+#videoShell.website-mode #websiteFullscreen:hover{
+ background:#285b76;
+}
+@media(max-width:700px){
+ #videoShell.website-mode.theater-mode .website-player-warning{
+  top:max(8px,env(safe-area-inset-top))!important;
+  left:6px!important;right:auto!important;
+  max-width:min(68vw,290px)!important;
+  max-height:40vh;
+ }
+ #videoShell.website-mode.theater-mode .website-player-actions{
+  justify-content:flex-start;
+ }
+ #videoShell.website-mode.theater-mode .website-player-actions button{
+  min-height:32px;padding:5px 8px;
+ }
+}

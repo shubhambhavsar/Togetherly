@@ -258,6 +258,8 @@ function updateTheaterUI(){
  $('fullscreenToggle').setAttribute('aria-label',active?'Exit watch fullscreen':'Enter watch fullscreen');
  $('toolbarFullscreen').setAttribute('aria-pressed',String(active));
  $('theaterLabel').textContent=active?'Exit fullscreen':'Fullscreen';
+ $('websiteFullscreen').textContent=active?'Exit Togetherly fullscreen':'Fullscreen + cameras';
+ $('websiteFullscreen').setAttribute('aria-pressed',String(active));
  if(active&&chatOpen)toggleChat(false);
  updateChatViewport();
 }
@@ -283,6 +285,7 @@ async function toggleTheater(){
 }
 $('fullscreenToggle').onclick=toggleTheater;
 $('toolbarFullscreen').onclick=toggleTheater;
+$('websiteFullscreen').onclick=toggleTheater;
 document.addEventListener('fullscreenchange',()=>{
  if(document.fullscreenElement!==theaterShell&&theaterFallback===false){updateTheaterUI()}
  else updateTheaterUI();
@@ -354,6 +357,16 @@ function sendPlayback(action){if(!playerReady||applying||lastState?.source==='we
 // External sites are sandboxed by default. Every browser must explicitly opt into
 // removing the sandbox for an individual exact URL; this never changes room state.
 const WEBSITE_FRAME_SANDBOX='allow-scripts allow-presentation';
+// Exact-host exception only. Never apply to arbitrary user-submitted domains,
+// lookalikes, subdomains, or other shared websites.
+function websiteDefaultsToCompatibility(raw){
+ try{
+  const url=new URL(raw);
+  return url.protocol==='https:'&&
+    (url.hostname.toLowerCase()==='flexflix.site'||url.hostname.toLowerCase()==='www.flexflix.site')&&
+    !url.username&&!url.password&&!url.port;
+ }catch{return false}
+}
 let websiteCompatibilityFor=null,websiteStoppedFor=null,websiteSelectedUrl=null;
 let websiteExitGuardArmed=false;
 function websiteRoomUrl(){
@@ -402,7 +415,9 @@ function updateWebsiteCompatibilityControls(url){
  $('websiteModeStatus').textContent=stopped
   ?'Stopped on this device · Togetherly room stays open'
   :enabled
-   ?'Compatibility mode · Browser may warn before leaving Togetherly'
+   ?(websiteDefaultsToCompatibility(url)
+      ?'Compatibility default for FlexFlix · Ads and redirects may occur'
+      :'Compatibility mode · Browser may warn before leaving Togetherly')
    :'Protected preview · Playback is not synchronized';
 }
 function setWebsitePlayer(s){
@@ -419,9 +434,10 @@ function setWebsitePlayer(s){
   // A new shared URL must revoke any local exception or stopped state.
   if(websiteSelectedUrl!==target){
    websiteSelectedUrl=target;
-   websiteCompatibilityFor=null;
+   const defaultCompatibility=websiteDefaultsToCompatibility(target);
+   websiteCompatibilityFor=defaultCompatibility?target:null;
    websiteStoppedFor=null;
-   loadWebsiteFrame(target,false);
+   loadWebsiteFrame(target,defaultCompatibility);
   }else if(websiteStoppedFor!==target&&!frame.hasAttribute('src')){
    // Recover a page that was unloaded without changing the shared room URL.
    websiteCompatibilityFor=null;
