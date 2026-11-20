@@ -414,7 +414,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=25')&&html.includes('/website-player.css?v=8'));
+ assert.ok(html.includes('/app.js?v=26')&&html.includes('/website-player.css?v=9'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -482,7 +482,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=25'));
+ assert.ok(html.includes('/website-player.css?v=9')&&html.includes('/app.js?v=26'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -1062,7 +1062,7 @@ test('mobile movie finder has a dedicated responsive detail step',()=>{
  for(const id of ['catalogResultHeading','catalogResultCount','catalogSelectedPoster',
   'catalogSelectedDescription','catalogShareFeedback','catalogChangeTitle'])
   assert.ok(html.includes('id="'+id+'"'));
- assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=25'));
+ assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=26'));
  assert.ok(css.includes('.sr-only{')&&css.includes('clip-path:inset(50%)'));
  assert.ok(css.includes('grid-template-columns:minmax(0,1fr) 77px'),'Find action must stay beside input');
  assert.ok(css.includes('#watch #movieCatalog.is-title-selected #catalogResults'));
