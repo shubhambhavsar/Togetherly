@@ -1272,6 +1272,7 @@ test('Togetherly hard pause stops the iframe, preserves local position and resum
    nodes.set(id,{attrs,flags,disabled:false,textContent:'',onclick:null,
     hasAttribute:k=>id==='websiteFrame'&&k==='src'&&Boolean(src),
     classList:{toggle:(c,v)=>v?flags.add(c):flags.delete(c),contains:c=>flags.has(c),add:c=>flags.add(c),remove:c=>flags.delete(c)},
+    addEventListener:()=>{},
     setAttribute:(k,v)=>attrs[k]=v,
     getAttribute:k=>attrs[k]});
   }
@@ -1380,8 +1381,9 @@ test('mixed queue supports validated YouTube videos, films and episodes and open
  assert.equal(playingMovie.selectedMedia,true);
  assert.equal(playingMovie.catalog.title,'Fight Club');
  assert.equal(playingMovie.movieTimeline.playing,true);
- const later=await guest.ask('join',{id:room.id,name:'Guest'});
- assert.ok(later.error,'Existing socket cannot join the same room twice');
+ const lateGuest=client('lateGuest');
+ const later=await lateGuest.ask('join',{id:room.id,name:'Late Guest'});
+ assert.equal(later.state.selectedMedia,true,'Late guests must see selected content');
  assert.equal((await host.ask('queue:play',{id:list[2].id})).source,'website');
  const episode=sent.filter(x=>x.event==='state').at(-1).data;
  assert.equal(episode.websiteUrl,'https://vidfast.vc/tv/1399/2/3');
