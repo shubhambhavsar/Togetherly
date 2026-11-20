@@ -36,17 +36,69 @@ async function check(){
   const unexpected=[];
   host.on('pageerror',err=>unexpected.push('host: '+err.message));
   await host.goto(origin,{waitUntil:'domcontentloaded'});
+  // Validate the actual landing layout on small and large phone viewports,
+  // for BOTH visual themes, before entering a room.
+  async function verifyLanding(mode){
+   for(const width of [320,360,390,430,600,768,820]){
+    await host.setViewportSize({width,height:844});
+    const g=await host.evaluate(()=>{
+     const box=s=>{const r=document.querySelector(s).getBoundingClientRect();
+      return{x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom}};
+     const footer=[...document.querySelectorAll('#landing .entry-footer span')].map(x=>{
+      const r=x.getBoundingClientRect();return{x:r.x,right:r.right}});
+     const headline=document.querySelector('#landing .landing-copy h1');
+     return{viewport:innerWidth,scrollWidth:document.documentElement.scrollWidth,
+      landing:box('#landing'),copy:box('#landing .landing-copy'),card:box('#landing .landing-entry'),
+      title:box('#landing .landing-copy h1'),paragraph:box('#landing .landing-copy p'),
+      input:box('#name'),button:box('#create'),headerBrand:box('.site-header .brand'),
+      themeButton:box('#themeToggle'),footer,
+      titleOverflow:headline.scrollWidth-headline.clientWidth,
+      cardScrollWidth:document.querySelector('#landing .landing-entry').scrollWidth,
+      cardClientWidth:document.querySelector('#landing .landing-entry').clientWidth};
+    });
+    const explain=mode+' '+width+'px: '+JSON.stringify(g);
+    assert.ok(g.scrollWidth-g.viewport<=2,'No horizontal document overflow: '+explain);
+    assert.ok(g.landing.x>=11&&g.landing.right<=g.viewport-10,'Landing needs even outer gutters: '+explain);
+    assert.ok(Math.abs(g.copy.x-g.card.x)<=1,'Headline and card left edges must align: '+explain);
+    assert.ok(Math.abs(g.copy.width-g.card.width)<=1,'Headline and card widths must match: '+explain);
+    assert.ok(g.title.width<=g.copy.width+1&&g.titleOverflow<=2,'Headline must stay within its column: '+explain);
+    assert.ok(g.paragraph.right<=g.copy.right+1,'Description must fit: '+explain);
+    assert.ok(Math.abs(g.input.x-g.button.x)<=1&&Math.abs(g.input.width-g.button.width)<=1,
+     'Name field and action must align: '+explain);
+    assert.ok(g.input.width>=Math.min(238,width-76),'Name field too narrow: '+explain);
+    assert.ok(g.button.height>=44,'Primary action must be tap-friendly: '+explain);
+    assert.ok(g.footer.every(x=>x.x>=g.card.x+8&&x.right<=g.card.right-8),
+     'Footer labels must stay inside invitation card: '+explain);
+    assert.ok(g.cardScrollWidth-g.cardClientWidth<=2,'Invitation card must not overflow: '+explain);
+    assert.ok(g.headerBrand.right+4<=g.themeButton.x,'Brand and theme switch must not overlap: '+explain);
+   }
+   await host.setViewportSize({width:390,height:844});
+  }
   assert.equal(await host.locator('html').getAttribute('data-theme'),'cinema');
+  await verifyLanding('Private Cinema');
+
   await host.locator('#themeToggle').click();
   assert.equal(await host.locator('html').getAttribute('data-theme'),'lounge');
   assert.equal(await host.locator('#themeToggle').getAttribute('aria-pressed'),'true');
   assert.equal(await host.locator('meta[name="theme-color"]').getAttribute('content'),'#FAF5EC');
   const lightSurface=await host.evaluate(()=>getComputedStyle(document.body).backgroundColor);
   assert.equal(lightSurface,'rgb(250, 245, 236)','Light mode should use warm ivory, not a dark background');
+  await verifyLanding('Living Room');
   const persistedTab=await context.newPage();
   await persistedTab.goto(origin,{waitUntil:'domcontentloaded'});
   assert.equal(await persistedTab.locator('html').getAttribute('data-theme'),'lounge','Theme preference should persist in browser storage');
   await persistedTab.close();
+  // An invited user sees an extra action: it must use the same card width.
+  await host.locator('#joinbox').evaluate(el=>el.classList.remove('hidden'));
+  const invited=await host.evaluate(()=>{
+   const box=s=>document.querySelector(s).getBoundingClientRect();
+   const card=box('#landing .landing-entry'),button=box('#join'),create=box('#create');
+   return{card:{x:card.x,right:card.right},button:{x:button.x,right:button.right,width:button.width},
+    create:{x:create.x,right:create.right,width:create.width}};
+  });
+  assert.ok(Math.abs(invited.button.x-invited.create.x)<=1&&
+   Math.abs(invited.button.width-invited.create.width)<=1,'Invitation action must align with primary action');
+  await host.locator('#joinbox').evaluate(el=>el.classList.add('hidden'));
   await host.locator('#name').fill('Mobile host');
   await host.locator('#create').click();
   await host.locator('#watch').waitFor({state:'visible',timeout:15000});
