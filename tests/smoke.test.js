@@ -695,3 +695,51 @@ test('the new movie form spans the available width and distinguishes room playba
  assert.ok(backend.includes("app.get('/api/catalog/tv/:id/seasons'"));
  assert.ok(backend.includes('await catalogTvSeasons(choice.id)'));
 });
+
+
+test('slow TV metadata cannot override a newer room choice; simultaneous lookups are deduplicated',async()=>{
+ let connect,resolveDetails,callCount=0;
+ const outbound=[];
+ class FakeIO{on(event,fn){if(event==='connection')connect=fn}
+  to(room){return{emit:(event,data)=>outbound.push({room,event,data})}}}
+ const exp=()=>({disable(){},use(){},get(){}});exp.static=()=>()=>{};
+ const fakeRequire=id=>id==='express'?exp:id==='http'?{createServer:()=>({listen(){}})}:
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'a'.repeat(n*2)})}:
+  id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ vm.runInNewContext(backend,{
+  require:fakeRequire,URL:require('node:url').URL,
+  AbortSignal:{timeout:()=>({})},process:{env:{PORT:'3000',TMDB_API_READ_TOKEN:'hidden-token'}},
+  console,__dirname:'/app',setInterval:()=>({unref(){}}),
+  fetch:async()=>{
+   callCount++;
+   return new Promise(resolve=>{resolveDetails=()=>resolve({
+    ok:true,json:async()=>({seasons:[{season_number:1,episode_count:7}]})
+   })});
+  }
+ },{filename:'server.js'});
+ const client=id=>{
+  const handlers={},sock={id,data:{},join(){},leave(){},
+   on:(event,fn)=>handlers[event]=fn,
+   to:()=>({emit:(event,data)=>outbound.push({room:'other',event,data})}),
+   emit:(event,data)=>outbound.push({room:id,event,data})};
+  connect(sock);
+  return{ask:(event,data)=>new Promise(resolve=>handlers[event](data,resolve)),
+   fire:event=>handlers[event]()};
+ };
+ const host=client('host'),guest=client('guest');
+ const room=await host.ask('create',{name:'Host'});
+ await guest.ask('join',{id:room.id,name:'Guest'});
+ const first=host.ask('catalog:play',{type:'tv',id:1399,provider:'vidfast',season:1,episode:1});
+ const second=guest.ask('catalog:play',{type:'tv',id:1399,provider:'vidfast',season:1,episode:2});
+ assert.equal(callCount,1,'Concurrent requests must share one TMDB lookup');
+ const movie=await guest.ask('catalog:play',{type:'movie',id:603,provider:'vidfast'});
+ assert.equal(movie.url,'https://vidfast.vc/movie/603');
+ resolveDetails();
+ assert.match((await first).error,/changed the room playback/);
+ assert.match((await second).error,/changed the room playback/);
+ guest.fire('sync');
+ const state=outbound.filter(x=>x.room==='guest'&&x.event==='state').at(-1).data;
+ assert.equal(state.catalog.type,'movie');
+ assert.equal(state.catalog.id,603);
+ assert.equal(callCount,1);
+});
