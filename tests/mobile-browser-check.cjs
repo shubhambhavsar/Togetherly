@@ -93,6 +93,15 @@ async function check(){
   await guest.locator('#chatText').fill('Togetherly browser regression');
   await guest.locator('#chatSend').click();
   await host.waitForFunction(()=>document.querySelector('#chat')?.textContent?.includes('Togetherly browser regression'),{timeout:12000});
+  await guest.evaluate(()=>{
+   window.__chatClickTrace=[];
+   const closer=document.getElementById('closeChat');
+   closer.addEventListener('pointerdown',()=>window.__chatClickTrace.push('pointerdown close'),true);
+   closer.addEventListener('click',()=>window.__chatClickTrace.push('click close capture'),true);
+   document.addEventListener('click',e=>{
+    if(e.target.closest('#closeChat'))window.__chatClickTrace.push('document clicked close')
+   },true);
+  });
   await guest.locator('#closeChat').click();
   await pause(160);
   const chatClosing=await guest.evaluate(()=>({
@@ -100,6 +109,8 @@ async function check(){
    body:document.body.className,
    active:document.activeElement?.id,
    handler:typeof document.getElementById('closeChat').onclick,
+   chatOpenValue:typeof chatOpen!=='undefined'?chatOpen:'missing',
+   trace:window.__chatClickTrace,
    closeRect:document.getElementById('closeChat').getBoundingClientRect().toJSON()
   }));
   console.log('Chat dismissal diagnostic:',JSON.stringify(chatClosing));
