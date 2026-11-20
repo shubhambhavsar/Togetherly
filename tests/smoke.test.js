@@ -414,7 +414,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=24')&&html.includes('/website-player.css?v=8'));
+ assert.ok(html.includes('/app.js?v=25')&&html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -482,7 +482,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=24'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=25'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -905,8 +905,8 @@ test('mobile cinema has a four-item accessible dock and focused discover/people 
   'mobilePickerPanel','mobileClosePicker','mobileClosePeople','mobileSheetBackdrop',
   'mobileCatchup','mobileQueueToggle','mobileNavUnread','mobileNavPeopleCount'])
   assert.ok(html.includes('id="'+id+'"'),'Mobile control missing: '+id);
- assert.ok(html.includes('/mobile-cinema.css?v=1'));
- assert.ok(html.indexOf('/mobile-cinema.css?v=1')>html.indexOf('/watch-redesign.css?v=4'));
+ assert.ok(html.includes('/mobile-cinema.css?v=2'));
+ assert.ok(html.indexOf('/mobile-cinema.css?v=2')>html.indexOf('/watch-redesign.css?v=4'));
  assert.ok(css.includes('body.theater-lock #mobileNav'),'Dock must not cover fullscreen');
  assert.ok(css.includes('env(safe-area-inset-bottom)'),'Safe area padding must be present');
  assert.ok(css.includes('min-height:57px'),'Dock targets must be thumb-sized');
