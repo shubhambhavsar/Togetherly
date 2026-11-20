@@ -240,19 +240,34 @@ camera seats and fully synced **YouTube** playback. Movie-source playback remain
 **independent per viewer**, not cross-browser synchronized.
 
 When a viewer selects a title in Movies & Series, the existing room server generates
-a source-specific URL. The browser removes iframe sandbox attributes **only** when
-the URL exactly matches the remaining explicitly allowed VidFast source adapter;
-older arbitrary website links stay sandboxed. No compatibility confirmation click
-is needed for these exact catalogue sources. A compact **Stop player** button
-unloads the iframe without disconnecting chat or cameras.
+a source-specific URL. The browser now keeps **all** movie frames sandboxed,
+including exact-match VidFast catalogue sources, using
+`allow-scripts allow-same-origin allow-forms`. It explicitly **does not**
+enable `allow-popups`, `allow-top-navigation`, `allow-downloads`, or
+`allowfullscreen`. Basic in-frame playback and forms are permitted, but
+click-triggered new windows and navigation of the parent tab are blocked by
+the browser sandbox when it is supported.
+
+A movie provider's **own fullscreen** is disabled. Use **Togetherly Theater**
+in the player toolbar, which fullscreen-displays the parent video canvas and
+can preserve Togetherly's camera tiles above the movie. Native fullscreen of
+an external child iframe would otherwise hide camera tiles outside that frame.
+The room's `Permissions-Policy: fullscreen=(self)` additionally disallows
+cross-origin iframe fullscreen, where browser support exists.
+
+A compact Stop/Close movie button unloads the iframe without disconnecting
+chat or cameras. The web sandbox may interfere with provider authentication,
+cookies, storage, nested players, or autoplay; no provider playback can be
+guaranteed. Do **not** bypass browser security/antivirus warnings to work
+around these restrictions.
 
 Security limits: Streambert's Electron app blocks ads/trackers via its privileged
-`session.webRequest` API and denies popups with `setWindowOpenHandler`. An ordinary
-hosted website like Togetherly cannot intercept requests or window creation inside
-cross-origin provider frames. Togetherly adds a parent-side CSP direct-frame
-allowlist, no-referrer links and a best-effort beforeunload warning, **not** a
-complete ad blocker. Unrestricted movie frames may still show ads, popups or
-redirects, and a provider may refuse framing with its own CSP/X-Frame-Options.
+`session.webRequest` API and denies popups with `setWindowOpenHandler`. A hosted
+website cannot inspect or filter all requests inside a cross-origin frame.
+Browser iframe sandboxing can block `window.open` and `target=_blank` windows
+as well as top-level navigation, but **cannot guarantee** removal of in-frame
+ads or stop an embedded player replacing its own document. A provider may
+refuse framing via CSP/X-Frame-Options.
 Never enter credentials in third-party players. Browser-level ad and tracker
 protection is recommended. No licensing, playback, or synchronization guarantees.
 
