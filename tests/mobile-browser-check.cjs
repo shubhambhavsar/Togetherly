@@ -417,6 +417,9 @@ async function check(){
   assert.ok(guestLayout.landingHidden&&guestLayout.landingDisplay==='none'&&
     guestLayout.landingHeight===0&&guestLayout.watchHeight>130,
     'Guests must not see both landing and watch screens: '+JSON.stringify(guestLayout));
+  // Empty-room guests see Discover first; close it before switching sections.
+  await guest.locator('#mobileClosePicker').click();
+  await guest.locator('#mobilePickerPanel').waitFor({state:'hidden'});
   await guest.locator('#mobileNavPeople').click();
   await guest.locator('#peoplePanel').waitFor({state:'visible'});
   await guest.waitForFunction(()=>document.querySelectorAll('#members .member').length===2,null,{timeout:12000});
