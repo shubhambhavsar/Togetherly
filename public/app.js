@@ -21,7 +21,7 @@ function nickname(){return $('name').value.trim().slice(0,25)}
 function saveName(n){currentName=n;$('name').value=n;try{localStorage.setItem('togetherly.nickname',n)}catch{}}
 function requireName(){const n=nickname();if(!n){toast('Enter your name before joining');$('name').focus();return null}saveName(n);return n}
 $('rename').onclick=()=>{if(!room)return;const v=prompt('What name should others see?',currentName||nickname());if(v===null)return;const n=v.trim().slice(0,25);if(!n)return toast('Name cannot be empty');socket.emit('room:rename',{name:n},result=>{if(result?.ok){saveName(n);toast('Name updated')}else toast(result?.error||'Could not update name')})};
-function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();applyState(d.state);initPlayer();startSpectatorView()}
+function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').hidden=true;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();applyState(d.state);initPlayer();startSpectatorView()}
 function create(){const n=requireName();if(!n)return;socket.emit('create',{name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFromPath||room,name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
@@ -717,10 +717,11 @@ $('retryPlayer').onclick=()=>{
 };
 loadYouTubeAPI();
 function sendPlayback(action){if(!playerReady||applying||lastState?.source==='website')return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
-// All third-party movie frames are sandboxed, including catalogue URLs.
-// Allow playback scripts, provider-origin state and form controls, but NEVER
-// popups, parent navigation, downloads or native iframe fullscreen.
-// These external sources have a distinct origin from Togetherly.
+// The external movie provider needs unsandboxed compatibility to play reliably.
+// Grant compatibility ONLY to exact server-verified catalogue URLs; all other
+// frames retain a restrictive sandbox. Unrestricted external iframes can open
+// popups and attempt redirects; a beforeunload guard is best-effort, not a blocker.
+// Native child fullscreen remains disallowed so Togetherly Theater shows cameras.
 const WEBSITE_FRAME_SANDBOX='allow-scripts allow-same-origin allow-forms';
 const CATALOG_ALLOWED_PLAYERS=Object.freeze({
  vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
@@ -908,19 +909,20 @@ function unloadWebsiteFrame(){
  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
  setWebsiteExitGuard(false);
 }
-function loadWebsiteFrame(url){
+function loadWebsiteFrame(url,compatibilityMode=false){
  const frame=$('websiteFrame');
  movieFrameEventsSeen=false;movieFrameLastProgress=null;movieFrameLastProgressAt=0;
  movieFrameLastPlaying=null;movieLastCorrectionAt=Date.now();movieLastPlaybackCommandAt=Date.now();
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
- // Set the sandbox before src: block target=_blank/window.open and parent
- // navigation from an untrusted movie site, without blocking normal clicks.
- frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
- // A nested player fullscreen would hide our local camera overlay.
+ // Only the verified movie-source adapter is eligible for compatibility mode.
+ // This also means in-frame ad clicks may create tabs; browsers give the parent
+ // no guaranteed way to suppress popups from an unsandboxed cross-origin frame.
+ if(compatibilityMode)frame.removeAttribute('sandbox');
+ else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
  frame.removeAttribute('allowfullscreen');
  frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
+ setWebsiteExitGuard(compatibilityMode);
  frame.setAttribute('src',url);
- setWebsiteExitGuard(false);
 }
 function updateWebsitePlayerActions(url){
  const stopped=Boolean(url&&websiteStoppedFor===url);
@@ -941,9 +943,9 @@ function setWebsitePlayer(s){
   if(websiteSelectedUrl!==url||websiteSelectedVersion!==s.version){
    websiteSelectedUrl=url;websiteSelectedVersion=s.version;
    websiteStoppedFor=null;
-   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline));
+   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true);
   }else if(websiteStoppedFor!==url&&!frame.hasAttribute('src')){
-   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline));
+   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true);
   }
   updateWebsitePlayerActions(url);
  }else{
@@ -963,7 +965,7 @@ $('websiteStop').onclick=()=>{
 $('websiteResume').onclick=()=>{
  if(!websiteSelectedUrl||websiteStoppedFor!==websiteSelectedUrl)return;
  websiteStoppedFor=null;
- loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}));
+ loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}),verifiedCatalogPlayer(lastState));
  updateWebsitePlayerActions(websiteSelectedUrl);
 };
 function applyState(s){
