@@ -1410,13 +1410,16 @@ test('empty rooms prefer Discover and selected-media rooms keep Watch even when 
  assert.ok(html.includes('id="roomNowPlayingWatch"'));
  assert.ok(html.includes('id="catalogQueue"'));
  assert.ok(css.includes('#watch.room-discover-first .theater-main'));
- assert.ok(css.includes('#watch.room-discover-first .theater-main>.watch-stage{display:none!important}'));
+ assert.ok(css.includes('#watch.room-discover-first .watch-stage{'), 'Desktop stage must remain in layout');
+ assert.ok(css.includes('#watch.room-discover-first .watch-stage>.source-library{'), 'Discover must target actual child within stage');
+ assert.ok(css.includes('#watch.room-discover-first .watch-stage>#videoShell{display:none!important}'), 'Only empty video shell is hidden');
+ assert.ok(!css.includes('.theater-main>.watch-stage{display:none!important}'), 'Never hide the parent of Discover');
  assert.ok(css.includes('#watch.room-has-no-media #player'));
 });
 test('compact overlaid movie controls remain protected, auto-hide, and combine fullscreen',()=>{
  const css=fs.readFileSync(path.join(root,'public/room-experience.css'),'utf8');
  assert.ok(html.includes('id="movieLocalFullscreen"'));
- assert.ok(html.includes('room-experience.css?v=1'));
+ assert.ok(html.includes('room-experience.css?v=3'));
  assert.ok(frontend.includes('const MOVIE_CONTROLS_IDLE_MS=3200'));
  assert.ok(frontend.includes("if(event.target.closest('button'))return;"));
  assert.ok(frontend.includes("showMovieControls();\n};\n$('websiteClickShield').addEventListener('pointermove'"));
