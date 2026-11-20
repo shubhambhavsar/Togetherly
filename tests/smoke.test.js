@@ -225,7 +225,7 @@ test('theater dock contains only Exit fullscreen; chat works outside',()=>{
  assert.ok(!frontend.includes("$('chatBubble').onclick"),'Fullscreen chat action should be removed');
  assert.ok(!frontend.includes('theaterAnchor'),'Chat stays in its original sidebar');
 });
-test('mobile fullscreen keeps the single right-edge Exit control',()=>{
+test('mobile fullscreen keeps accessible Exit and final layout moves it out of the video center',()=>{
  const compact=fs.readFileSync(path.join(root,'public/compact-mobile-dock.css'),'utf8');
  const noChat=fs.readFileSync(path.join(root,'public/no-fullscreen-chat.css'),'utf8');
  assert.ok(html.includes('/compact-mobile-dock.css?v=1'));
@@ -235,7 +235,9 @@ test('mobile fullscreen keeps the single right-edge Exit control',()=>{
  assert.ok(compact.includes('(pointer:coarse) and (max-width:1100px)'));
  assert.ok(noChat.includes('width:50px!important'),'Single button rail should be narrow');
  assert.ok(noChat.includes('height:44px!important'),'Exit button must remain tap-friendly');
- assert.ok(noChat.includes('right:max(7px,env(safe-area-inset-right))!important'),'Exit button stays at right edge');
+ const latest=fs.readFileSync(path.join(root,'public/watch-redesign.css'),'utf8');
+ assert.ok(latest.includes('left:max(12px,env(safe-area-inset-left))!important'),'Latest layout positions Exit on the upper left');
+ assert.ok(latest.includes('bottom:auto!important'),'Exit button cannot obscure the bottom-center movie');
  assert.ok(html.includes('id="toolbarChat"'),'Normal-mode chat remains');
 });
 test('automatic camera viewing does not request microphone or camera permission',()=>{
@@ -412,7 +414,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=23')&&html.includes('/website-player.css?v=8'));
+ assert.ok(html.includes('/app.js?v=24')&&html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -480,7 +482,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=23'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=24'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -893,4 +895,157 @@ test('fullscreen exit is an accessible unobtrusive top-left icon, not a bottom-c
  assert.ok(html.indexOf('/watch-redesign.css?v=4')>html.indexOf('/no-fullscreen-chat.css?v=1'));
  assert.ok(frontend.includes("document.addEventListener('keydown'"));
  assert.ok(html.includes('id="fullscreenToggle"'));
+});
+
+
+test('mobile cinema has a four-item accessible dock and focused discover/people sheets',()=>{
+ const css=fs.readFileSync(path.join(root,'public/mobile-cinema.css'),'utf8');
+ for(const id of ['mobileNav','mobileNavWatch','mobileNavChoose','mobileNavPeople','mobileNavChat',
+  'mobilePickerPanel','mobileClosePicker','mobileClosePeople','mobileSheetBackdrop',
+  'mobileCatchup','mobileQueueToggle','mobileNavUnread','mobileNavPeopleCount'])
+  assert.ok(html.includes('id="'+id+'"'),'Mobile control missing: '+id);
+ assert.ok(html.includes('/mobile-cinema.css?v=1'));
+ assert.ok(html.indexOf('/mobile-cinema.css?v=1')>html.indexOf('/watch-redesign.css?v=4'));
+ assert.ok(css.includes('body.theater-lock #mobileNav'),'Dock must not cover fullscreen');
+ assert.ok(css.includes('env(safe-area-inset-bottom)'),'Safe area padding must be present');
+ assert.ok(css.includes('min-height:57px'),'Dock targets must be thumb-sized');
+ assert.ok(css.includes('#watch .source-library.mobile-open'));
+ assert.ok(css.includes('#watch #peoplePanel.mobile-open'));
+ assert.ok(css.includes('#watch #chatPanel.chat-open'));
+ assert.ok(css.includes('var(--chat-visible-height,100dvh)'),'Chat should avoid virtual keyboard');
+ assert.ok(css.includes('prefers-reduced-motion:reduce'));
+ assert.ok(html.includes('catalog-safety-details')&&html.includes('Never bypass an antivirus warning.'));
+ assert.ok(!html.includes('This is an unverified third-party player. If your antivirus flags its site or redirects'));
+});
+
+test('mobile nav opens one sheet at a time, closes with backdrop and updates unread counters',async()=>{
+ const from=frontend.indexOf('/* Mobile watch-first navigation.');
+ const until=frontend.indexOf('// Streambert-inspired movie catalogue.',from);
+ assert.ok(from>=0&&until>from,'Mobile navigation behavior should be isolated for testing');
+ const source=frontend.slice(from,until);
+ function node(){
+  const flags=new Set(['hidden']),attrs={};
+  return{classList:{add:x=>flags.add(x),remove:x=>flags.delete(x),contains:x=>flags.has(x),
+    toggle:(x,value)=>{if(value===undefined)value=!flags.has(x);value?flags.add(x):flags.delete(x);return value}},
+   setAttribute:(k,v)=>attrs[k]=v,removeAttribute:k=>delete attrs[k],
+   getAttribute:k=>attrs[k],textContent:'',innerHTML:'',isConnected:true,
+   focus(){this.focused=true},scrollIntoView(){this.scrolled=true}};
+ }
+ const nodes=new Map(),$=id=>{
+  if(!nodes.has(id))nodes.set(id,node());
+  return nodes.get(id);
+ };
+ const body=node(),queue=node();
+ const document={body,activeElement:$('mobileNavChoose'),querySelector:()=>queue,
+  addEventListener(){}};
+ const context={
+  $,matchMedia:()=>({matches:true}),document,window:{addEventListener(){}},
+  participants:[{id:'a'},{id:'b'}],chatOpen:false,
+  theaterActive:()=>false,movieCatchupNow(){},toggleTheater:async()=>{},toast(){},
+  toggleChat(show){context.chatOpen=show;context.testChrome();}
+ };
+ vm.runInNewContext(source+'\nthis.testChrome=updateMobileChrome;this.testClose=mobileClosePanels;',context);
+ assert.equal($('mobileNavPeopleCount').textContent,'2');
+ $('mobileNavChoose').onclick();
+ assert.equal($('mobilePickerPanel').classList.contains('mobile-open'),true);
+ assert.equal($('peoplePanel').classList.contains('mobile-open'),false);
+ assert.equal($('mobileNavChoose').getAttribute('aria-expanded'),'true');
+ assert.equal(body.classList.contains('mobile-sheet-open'),true);
+ $('mobileNavPeople').onclick();
+ assert.equal($('mobilePickerPanel').classList.contains('mobile-open'),false);
+ assert.equal($('peoplePanel').classList.contains('mobile-open'),true);
+ $('mobileSheetBackdrop').onclick();
+ assert.equal($('peoplePanel').classList.contains('mobile-open'),false);
+ assert.equal($('mobileSheetBackdrop').classList.contains('hidden'),true);
+ await $('mobileNavChat').onclick();
+ assert.equal(context.chatOpen,true);
+ assert.equal(body.classList.contains('mobile-chat-open'),true);
+ context.testClose();
+ assert.equal(context.chatOpen,false);
+ assert.equal(body.classList.contains('mobile-chat-open'),false);
+ $('mobileQueueToggle').onclick();
+ assert.equal(queue.classList.contains('is-open'),true);
+ assert.equal($('mobileQueueToggle').getAttribute('aria-expanded'),'true');
+ $('mobileQueueToggle').onclick();
+ assert.equal(queue.classList.contains('is-open'),false);
+});
+
+test('camera permission promises are canceled when leaving so late replies cannot republish',async()=>{
+ const leaveStart=frontend.indexOf('async function leaveCall(send=true){');
+ const leaveEnd=frontend.indexOf('async function createPeer(',leaveStart);
+ const joinStart=frontend.indexOf('async function joinCall(){');
+ const joinEnd=frontend.indexOf("$('call').onclick=joinCall;",joinStart);
+ assert.ok(leaveStart>0&&leaveEnd>leaveStart&&joinStart>0&&joinEnd>joinStart);
+ const events=[],toasts=[],tracks=[],nodes=new Map();
+ const $=id=>{
+  if(!nodes.has(id))nodes.set(id,{textContent:'',classList:{add(){},remove(){}},
+   replaceChildren(){},disabled:false,setAttribute(){}});
+  return nodes.get(id);
+ };
+ const mediaTrack={stopped:false,stop(){this.stopped=true},addEventListener(){}};
+ const stream={getTracks:()=>[mediaTrack]};
+ let resolveMedia,joinCallback;
+ const context={
+  $,room:'room-id',callRole:'spectator',callActive:true,callJoining:false,
+  callAttempt:0,localStream:null,callMembers:[],cameraMembers:()=>[],
+  socket:{connected:true,emit:(name,data,callback)=>{events.push(name);if(name==='call:join')joinCallback=callback},
+   timeout:()=>({emit:(name,data,cb)=>{events.push(name);joinCallback=cb}})},
+  getMedia:()=>new Promise(resolve=>{resolveMedia=resolve}),loadIceServers:async()=>{},
+  toast:text=>toasts.push(text),updateCallActions(){},setCallUI(){},
+  connections:new Map(),videoTiles:new Map(),removePeer(){},
+  startSpectatorView(){},offerAvailableCameras(){},displayTile:()=>({}),
+  console
+ };
+ vm.runInNewContext(frontend.slice(leaveStart,leaveEnd)+'\n'+frontend.slice(joinStart,joinEnd)+
+  '\nthis.testJoinCall=joinCall;this.testLeaveCall=leaveCall;',context);
+ const joining=context.testJoinCall();
+ assert.equal(context.callJoining,true);
+ await context.testLeaveCall(true);
+ assert.equal(context.callJoining,false);
+ resolveMedia(stream);
+ await joining;
+ assert.equal(mediaTrack.stopped,true);
+ assert.equal(events.includes('call:join'),false,'Canceled camera permission must not join a call');
+ assert.equal(context.callActive,false);
+ assert.equal(context.callAttempt,2);
+ // A server response delivered after leaving also must not re-enable publishing.
+ const secondTrack={stopped:false,stop(){this.stopped=true},addEventListener(){}};
+ context.getMedia=async()=>({getTracks:()=>[secondTrack]});
+ const second=context.testJoinCall();await second;
+ assert.equal(events.filter(x=>x==='call:join').length,1);
+ await context.testLeaveCall(true);
+ joinCallback(null,{role:'camera',peers:[],callMembers:[]});
+ assert.equal(context.callActive,false);
+ assert.equal(secondTrack.stopped,true);
+});
+
+test('WebRTC collision handling uses polite rollback and bounds queued ICE candidates',async()=>{
+ const from=frontend.indexOf('async function onSignal({from,data}){');
+ const until=frontend.indexOf('async function loadIceServers(){',from);
+ assert.ok(from>0&&until>from);
+ const code=frontend.slice(from,until);
+ const actions=[],outbound=[];
+ const pc={signalingState:'have-local-offer',remoteDescription:null,localDescription:{toJSON:()=>({type:'answer'})},
+  async setLocalDescription(desc){actions.push('local:'+desc.type);this.signalingState=desc.type==='rollback'?'stable':'stable'},
+  async setRemoteDescription(desc){actions.push('remote:'+desc.type);this.remoteDescription=desc;this.signalingState='have-remote-offer'},
+  async createAnswer(){return{type:'answer'}}
+ };
+ const queues=new Map();
+ const context={
+  callActive:true,participants:[{id:'a'},{id:'b'}],me:'b',
+  createPeer:async()=>pc,drainCandidates:async()=>{},
+  RTCSessionDescription:function(d){return d},RTCIceCandidate:function(d){return d},
+  socket:{connected:true,emit:(...args)=>outbound.push(args)},
+  candidateQueues:queues,console,tileStatus(){},toast(){}
+ };
+ vm.runInNewContext(code+'\nthis.handleSignal=onSignal;',context);
+ await context.handleSignal({from:'a',data:{description:{type:'offer'}}});
+ assert.deepEqual(actions.slice(0,3),['local:rollback','remote:offer','local:answer']);
+ assert.equal(outbound.length,1);
+ actions.length=0;context.me='a';pc.signalingState='have-local-offer';
+ await context.handleSignal({from:'b',data:{description:{type:'offer'}}});
+ assert.equal(actions.length,0,'Impolite peer must ignore collision');
+ pc.remoteDescription=null;pc.signalingState='stable';
+ for(let i=0;i<140;i++)await context.handleSignal({from:'b',data:{candidate:{candidate:'test'+i}}});
+ assert.equal(queues.get('b').length,128,'Queue must be bounded');
 });
