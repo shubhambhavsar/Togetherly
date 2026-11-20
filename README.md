@@ -143,6 +143,27 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 
 
 
+## Phishing warning mitigation / slimmer controls (review only)
+
+The movie page no longer shows a wide Stop Player band on top of the embedded
+video. A compact **Close movie / Resume movie** control lives in the regular
+player toolbar, leaving the video unobstructed.
+
+Two formerly offered embed hosts, `vsembed.su` (VidSrc adapter) and
+`player.vidlove.cc` (VidLove adapter), have unfavorable independent phishing
+reputation reports. They are **removed** from both the movie UI and the
+server's allowlist. The removed Website Player form was already hidden; its
+obsolete `website` Socket.IO event is now reject-only so an older client
+cannot make the room open an arbitrary website.
+
+The remaining VidFast embed is **not independently verified as safe**;
+third-party scripts, nested frames, popups and redirects may still be blocked
+by antivirus software. Togetherly will not bypass a browser or antivirus
+phishing warning. The app cannot intercept and vet every cross-origin network
+request from the nested iframe. When any URL is flagged, stop playback and use
+a trusted, appropriately licensed viewing option. Do not whitelist a flagged
+host or turn off protection just to watch a film.
+
 ## Cinema room refresh (review branch; not deployed)
 
 The room now has a **Movies & Series / YouTube** switcher under the shared player.
@@ -153,7 +174,7 @@ camera seats and fully synced **YouTube** playback. Movie-source playback remain
 
 When a viewer selects a title in Movies & Series, the existing room server generates
 a source-specific URL. The browser removes iframe sandbox attributes **only** when
-the URL exactly matches a server-defined VidSrc, Vidfast or Vidlove source adapter;
+the URL exactly matches the remaining explicitly allowed VidFast source adapter;
 older arbitrary website links stay sandboxed. No compatibility confirmation click
 is needed for these exact catalogue sources. A compact **Stop player** button
 unloads the iframe without disconnecting chat or cameras.
@@ -192,6 +213,6 @@ Review [TMDB terms](https://developer.themoviedb.org/docs/faq), metadata licensi
 
 ### Experimental player limitations
 
-The existing VidSrc, Vidfast, and Vidlove providers are unverified. Browser embedding restrictions, ads, regional restrictions, terms of service, autoplay, and copyright permissions still apply. The app does not proxy or download media, intercept playlists, or bypass DRM or frame protections. Cross-origin movies remain **unsynchronized**. The optional FlexFlix-only companion does not apply to these providers.
+The remaining VidFast player is unverified; the earlier VidSrc and VidLove providers were removed after phishing reputation warnings. Browser embedding restrictions, ads, regional restrictions, terms of service, autoplay, and copyright permissions still apply. The app does not proxy or download media, intercept playlists, or bypass DRM or frame protections. Cross-origin movies remain **unsynchronized**. The optional FlexFlix-only companion does not apply to these providers.
 
 **Review only:** Test title lookup against real TMDB/Wikidata responses, mobile UI, provider embed behavior, and provider rights before production. Do not merge or deploy without an explicit user request to deploy.
