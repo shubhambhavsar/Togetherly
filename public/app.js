@@ -942,8 +942,10 @@ $('movieLocalFullscreen').onclick=async event=>{
 };
 $('websiteClickShield').onclick=event=>{
  if(event.target.closest('button'))return;
- if(movieControlsVisible)hideMovieControls();
- else showMovieControls();
+ // A pointermove often fires immediately before a tap (especially in
+ // automated Chromium and hybrid touch laptops). Always reveal on tap;
+ // idle timeout hides controls, never an accidental immediate toggle.
+ showMovieControls();
 };
 $('websiteClickShield').addEventListener('pointermove',event=>{
  if(event.pointerType==='mouse'&&websiteSelectedUrl)showMovieControls();
