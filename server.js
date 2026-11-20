@@ -9,16 +9,12 @@ const MAX_ROOM_PARTICIPANTS=8;
  * Independent Streambert-style adapter pattern. Providers are not verified
  * or endorsed; we never scrape, proxy, download or circumvent media controls.
  */
+// Restrict embedded sources: two formerly listed domains have phishing flags.
+// VidFast is unverified and may still redirect; browser security warnings prevail.
 const CATALOG_SOURCES=Object.freeze({
- vidsrc:{label:'VidSrc',host:'vsembed.su',
-  movie:id=>'https://vsembed.su/embed/movie/'+id,
-  tv:(id,s,e)=>'https://vsembed.su/embed/tv/'+id+'/'+s+'/'+e},
- vidfast:{label:'Vidfast',host:'vidfast.vc',
+ vidfast:{label:'Vidfast (unverified)',host:'vidfast.vc',
   movie:id=>'https://vidfast.vc/movie/'+id,
-  tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e},
- vidlove:{label:'Vidlove',host:'player.vidlove.cc',
-  movie:id=>'https://player.vidlove.cc/embed/movie/'+id,
-  tv:(id,s,e)=>'https://player.vidlove.cc/embed/tv/'+id+'/'+s+'/'+e}
+  tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
 function catalogPlayer(d){
  if(!d||typeof d!=='object'||!Object.hasOwn(CATALOG_SOURCES,d.provider)||
@@ -149,7 +145,7 @@ app.get('/api/catalog/search',async(req,res)=>{
  }
 });
 app.disable('x-powered-by');
-app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Content-Security-Policy',"frame-ancestors 'self'; frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://vsembed.su https://vidfast.vc https://player.vidlove.cc");res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self), geolocation=(), payment=(), display-capture=(), clipboard-read=(), clipboard-write=(self), usb=(), serial=(), bluetooth=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()');next()});
+app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Content-Security-Policy',"frame-ancestors 'self'; frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://vidfast.vc");res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self), geolocation=(), payment=(), display-capture=(), clipboard-read=(), clipboard-write=(self), usb=(), serial=(), bluetooth=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()');next()});
 app.use(express.static(path.join(__dirname,'public')));
 app.get('/health',(_req,res)=>res.json({ok:true,relayConfigured:Boolean((process.env.TURN_URL&&process.env.TURN_USERNAME&&process.env.TURN_CREDENTIAL)||(process.env.METERED_TURN_DOMAIN&&process.env.METERED_TURN_API_KEY))}));
 // Relay credentials are provided only to live room members. A TURN credential
@@ -325,12 +321,9 @@ s.on('room:rename',(d,ack)=>{
 });
 s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.catalog=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
-s.on('website',(d,ack)=>{
- const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
- const websiteUrl=validateWebsiteUrl(d?.url);
- if(!websiteUrl)return ack?.({error:'Enter a public HTTPS website URL without passwords or access tokens'});
- r.source='website';r.websiteUrl=websiteUrl;r.websiteTimeline=null;r.catalog=null;r.playing=false;r.position=0;r.at=Date.now();r.version++;
- io.to(r.id).emit('state',state(r));ack?.({ok:true});
+// The old unrestricted website-sharing socket event remains reject-only for older clients.
+s.on('website',(_d,ack)=>{
+ ack?.({error:'Arbitrary website sharing was disabled for safety. Use the verified room controls.'});
 });
 s.on('catalog:play',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join a room before sharing a movie'});
