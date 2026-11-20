@@ -264,8 +264,9 @@ async function check(){
   }));
   await host.evaluate(()=>{
    window.__beforeMovieTest=lastState;
-   lastState={...lastState,source:'website',websiteUrl:'https://vidfast.vc/movie/603',
+   lastState={...lastState,selectedMedia:true,source:'website',websiteUrl:'https://vidfast.vc/movie/603',
     catalog:{provider:'vidfast',type:'movie',id:603}};
+   updateRoomEntryView(lastState);
    document.getElementById('videoShell').classList.add('website-mode');
    document.getElementById('websitePlayer').classList.remove('hidden');
    websiteSelectedUrl='https://vidfast.vc/movie/603';
@@ -341,6 +342,7 @@ async function check(){
    unloadWebsiteFrame();
    websiteSelectedUrl=null;
    lastState=window.__beforeMovieTest;
+   updateRoomEntryView(lastState);
    document.getElementById('videoShell').classList.remove('website-mode');
    document.getElementById('websitePlayer').classList.add('hidden');
   });
