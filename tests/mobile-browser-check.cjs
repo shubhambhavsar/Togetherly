@@ -102,6 +102,25 @@ async function check(){
   await host.locator('#name').fill('Mobile host');
   await host.locator('#create').click();
   await host.locator('#watch').waitFor({state:'visible',timeout:15000});
+  for(const width of [320,390,600,820]){
+   await host.setViewportSize({width,height:844});
+   const layout=await host.evaluate(()=>{
+    const landing=document.getElementById('landing');
+    const watch=document.getElementById('watch');
+    return{landingHidden:landing.hidden,
+     landingDisplay:getComputedStyle(landing).display,
+     landingHeight:landing.getBoundingClientRect().height,
+     watchDisplay:getComputedStyle(watch).display,
+     watchHeight:watch.getBoundingClientRect().height,
+     overflow:document.documentElement.scrollWidth-innerWidth};
+   });
+   assert.equal(layout.landingHidden,true,'Room must hide landing on '+width+'px: '+JSON.stringify(layout));
+   assert.equal(layout.landingDisplay,'none','Landing must not remain rendered under watch room');
+   assert.equal(layout.landingHeight,0,'No invisible landing taking vertical space');
+   assert.ok(layout.watchHeight>130&&layout.watchDisplay!=='none','Room must be the only visible screen');
+   assert.ok(layout.overflow<=2,'No horizontal scroll after joining');
+  }
+  await host.setViewportSize({width:390,height:844});
   await host.locator('#mobileNav').waitFor({state:'visible'});
   const url=host.url();
   assert.match(url,/\/room\/[a-f\d]{24}$/);
@@ -211,12 +230,14 @@ async function check(){
   assert.equal(publishingAfter,true,'Changing themes must not restart a WebRTC camera');
   await host.locator('#mobileNavPeople').click();
 
-  // Simulate a cross-origin player that opens an ad tab on every click and
-  // tries to take native fullscreen. Both actions must be denied while our
-  // movie controls, video and local WebRTC camera stay interactive.
+  // Reproduce an embedded player that needs compatibility mode and attempts
+  // to open an ad tab. The third-party frame is intentionally unsandboxed
+  // when the room supplies an exact verified player URL; browser popup
+  // prevention is NOT guaranteed. Child fullscreen stays forbidden.
   await host.locator('#mobileClosePeople').click();
   const unwantedTabs=[];
   host.on('popup',popup=>{unwantedTabs.push(popup.url());popup.close().catch(()=>{})});
+  await host.route('https://unwanted.example/**',route=>route.abort());
   await host.route('https://vidfast.vc/movie/603',route=>route.fulfill({
    status:200,contentType:'text/html',
    body:`<!doctype html><html><body style="margin:0;background:#121e2c;color:white">
@@ -234,17 +255,21 @@ async function check(){
   await host.evaluate(()=>{
    document.getElementById('videoShell').classList.add('website-mode');
    document.getElementById('websitePlayer').classList.remove('hidden');
-   loadWebsiteFrame('https://vidfast.vc/movie/603');
+   loadWebsiteFrame('https://vidfast.vc/movie/603',true);
   });
   const movieFrame=host.locator('#websiteFrame');
-  assert.equal(await movieFrame.getAttribute('sandbox'),'allow-scripts allow-same-origin allow-forms');
+  assert.equal(await movieFrame.getAttribute('sandbox'),null,
+   'Verified movie playback should use unsandboxed compatibility');
   assert.equal(await movieFrame.getAttribute('allowfullscreen'),null);
   await host.frameLocator('#websiteFrame').locator('#simulatedPlayer').click();
   await host.frameLocator('#websiteFrame').locator('body[data-clicked="yes"]').waitFor({state:'attached'});
   const testFrame=host.frameLocator('#websiteFrame').locator('body');
-  assert.equal(await testFrame.getAttribute('data-popup'),'blocked');
+  assert.ok(['opened','blocked'].includes(await testFrame.getAttribute('data-popup')),
+   'Player click should execute (popup policy varies by browser)');
   assert.equal(await testFrame.getAttribute('data-native-fullscreen'),'blocked');
-  assert.equal(unwantedTabs.length,0,'Sandboxed movie click must not open an unwanted tab');
+  // Browser may allow popups from a compatibility iframe; do not claim they
+  // are blocked when the sandbox is intentionally disabled.
+  assert.ok(unwantedTabs.length<=1,'Only one simulated popup attempt is expected');
   assert.equal(host.url(),url,'Third-party player must not navigate Togetherly');
   await host.locator('#toolbarFullscreen').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'visible'});
@@ -256,6 +281,8 @@ async function check(){
    document.getElementById('videoShell').classList.remove('website-mode');
    document.getElementById('websitePlayer').classList.add('hidden');
   });
+  assert.equal(await movieFrame.getAttribute('sandbox'),'allow-scripts allow-same-origin allow-forms',
+   'Stopped movie frame must regain its security sandbox');
   await host.locator('#mobileNavPeople').click();
 
   // Separate browser storage from the host; real guests have independent nicknames.
@@ -275,6 +302,15 @@ async function check(){
   await guest.locator('#name').fill('Guest');
   await guest.locator('#join').click();
   await guest.locator('#watch').waitFor({state:'visible',timeout:15000});
+  const guestLayout=await guest.evaluate(()=>({
+   landingHidden:document.getElementById('landing').hidden,
+   landingDisplay:getComputedStyle(document.getElementById('landing')).display,
+   landingHeight:document.getElementById('landing').getBoundingClientRect().height,
+   watchHeight:document.getElementById('watch').getBoundingClientRect().height
+  }));
+  assert.ok(guestLayout.landingHidden&&guestLayout.landingDisplay==='none'&&
+    guestLayout.landingHeight===0&&guestLayout.watchHeight>130,
+    'Guests must not see both landing and watch screens: '+JSON.stringify(guestLayout));
   await guest.locator('#mobileNavPeople').click();
   await guest.locator('#peoplePanel').waitFor({state:'visible'});
   await guest.waitForFunction(()=>document.querySelectorAll('#members .member').length===2,null,{timeout:12000});

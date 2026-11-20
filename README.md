@@ -239,37 +239,29 @@ movie-sync panel are removed from the interface. Browsers still support room cha
 camera seats and fully synced **YouTube** playback. Movie-source playback remains
 **independent per viewer**, not cross-browser synchronized.
 
-When a viewer selects a title in Movies & Series, the existing room server generates
-a source-specific URL. The browser now keeps **all** movie frames sandboxed,
-including exact-match VidFast catalogue sources, using
-`allow-scripts allow-same-origin allow-forms`. It explicitly **does not**
-enable `allow-popups`, `allow-top-navigation`, `allow-downloads`, or
-`allowfullscreen`. Basic in-frame playback and forms are permitted, but
-click-triggered new windows and navigation of the parent tab are blocked by
-the browser sandbox when it is supported.
+When a viewer selects a title in Movies & Series, the server constructs an
+exact-match allowlisted VidFast URL. **Those verified catalogue embeds load
+without the iframe sandbox** to restore compatibility with player scripts,
+storage and embedded playback. Any non-verified future source must remain
+sandboxed. Source URL verification and `frame-src` CSP remain in place.
 
-A movie provider's **own fullscreen** is disabled. Use **Togetherly Theater**
-in the player toolbar, which fullscreen-displays the parent video canvas and
-can preserve Togetherly's camera tiles above the movie. Native fullscreen of
-an external child iframe would otherwise hide camera tiles outside that frame.
-The room's `Permissions-Policy: fullscreen=(self)` additionally disallows
-cross-origin iframe fullscreen, where browser support exists.
+**Security tradeoff:** an unsandboxed third-party player may open a new browser
+tab on a click, show inline ads, or try to navigate the parent. The browser's
+`beforeunload` navigation warning is only best-effort; a regular website
+cannot guarantee blocking child-iframe popups while removing its sandbox.
+Do not click unexpected advertisements or bypass antivirus warnings, and never
+enter credentials into a third-party player. Stop movie unloads the iframe
+without disconnecting calls or chat.
 
-A compact Stop/Close movie button unloads the iframe without disconnecting
-chat or cameras. The web sandbox may interfere with provider authentication,
-cookies, storage, nested players, or autoplay; no provider playback can be
-guaranteed. Do **not** bypass browser security/antivirus warnings to work
-around these restrictions.
+The embedded provider's *native fullscreen* remains disabled via iframe
+allow-list and `Permissions-Policy: fullscreen=(self)`; use **Togetherly
+Theater** to keep Togetherly's camera tiles visible over the movie. This
+retains the room watch experience without authorizing cross-origin fullscreen.
 
-Security limits: Streambert's Electron app blocks ads/trackers via its privileged
-`session.webRequest` API and denies popups with `setWindowOpenHandler`. A hosted
-website cannot inspect or filter all requests inside a cross-origin frame.
-Browser iframe sandboxing can block `window.open` and `target=_blank` windows
-as well as top-level navigation, but **cannot guarantee** removal of in-frame
-ads or stop an embedded player replacing its own document. A provider may
-refuse framing via CSP/X-Frame-Options.
-Never enter credentials in third-party players. Browser-level ad and tracker
-protection is recommended. No licensing, playback, or synchronization guarantees.
+Movie playback remains independent per device, and room clock sync is
+approximate. Player compatibility is unverified across all real Android/iOS
+browser and provider conditions. The server neither retrieves nor redistributes
+movies, and no third-party streaming source is guaranteed or endorsed.
 
 ## Movie & Series source picker (deployed baseline)
 
