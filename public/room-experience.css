@@ -94,6 +94,9 @@
  }
 }
 @media(max-width:860px),(pointer:coarse) and (max-width:1050px){
+ /* Keep fixed mobile navigation in a full-height room even when the new
+    Discover-first/empty player view has very little content. */
+ #watch.watch-room{min-height:100dvh!important}
  #watch #videoShell .website-click-shield-message.movie-local-transport{
   width:min(100%,350px)!important;padding:4px!important;gap:0!important;
  }
