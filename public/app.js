@@ -727,6 +727,34 @@ const CATALOG_ALLOWED_PLAYERS=Object.freeze({
  vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
 let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false;
+const MOVIE_CONTROL_WINDOW_MS=12000;
+let websiteControlsUnlocked=false,websiteControlTimer=null;
+function setWebsiteClickGuard(unlocked=false){
+ if(websiteControlTimer){clearTimeout(websiteControlTimer);websiteControlTimer=null}
+ const active=Boolean(websiteSelectedUrl&&
+  websiteStoppedFor!==websiteSelectedUrl&&$('websiteFrame').hasAttribute('src'));
+ websiteControlsUnlocked=Boolean(active&&unlocked);
+ $('websiteClickShield').classList.toggle('hidden',!active||websiteControlsUnlocked);
+ const toggle=$('websiteInteractionToggle');
+ toggle.classList.toggle('hidden',!active);
+ toggle.textContent=websiteControlsUnlocked?'◈ Lock player':'◈ Use controls';
+ toggle.setAttribute('aria-pressed',String(websiteControlsUnlocked));
+ toggle.setAttribute('aria-label',websiteControlsUnlocked?'Lock movie player interactions':'Temporarily unlock movie player controls');
+ if(websiteControlsUnlocked)websiteControlTimer=setTimeout(()=>{
+  websiteControlTimer=null;
+  setWebsiteClickGuard(false);
+ },MOVIE_CONTROL_WINDOW_MS);
+}
+function toggleWebsiteControls(){
+ if(!websiteSelectedUrl||websiteStoppedFor===websiteSelectedUrl)return;
+ const unlock=!websiteControlsUnlocked;
+ setWebsiteClickGuard(unlock);
+ if(unlock)toast('Controls unlocked for 12 seconds. Third-party clicks may open tabs.');
+}
+$('websiteInteractionToggle').onclick=toggleWebsiteControls;
+$('websiteUnlock').onclick=event=>{event.stopPropagation();toggleWebsiteControls()};
+$('websiteClickShield').onclick=()=>toast('Protected view is on. Use controls to interact with this external player.');
+
 let websiteSelectedVersion=null,movieSnapshot=null,movieSnapshotAt=0;
 let movieFrameEventsSeen=false,movieFrameLastProgress=null,movieFrameLastProgressAt=0;
 let movieFrameLastPlaying=null,movieLastPlaybackCommandAt=0;
@@ -907,6 +935,7 @@ function unloadWebsiteFrame(){
  const frame=$('websiteFrame');
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
+ setWebsiteClickGuard(false);
  setWebsiteExitGuard(false);
 }
 function loadWebsiteFrame(url,compatibilityMode=false){
@@ -923,12 +952,14 @@ function loadWebsiteFrame(url,compatibilityMode=false){
  frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
  setWebsiteExitGuard(compatibilityMode);
  frame.setAttribute('src',url);
+ setWebsiteClickGuard(false);
 }
 function updateWebsitePlayerActions(url){
  const stopped=Boolean(url&&websiteStoppedFor===url);
  $('websiteStop').classList.toggle('hidden',!url||stopped);
  $('websiteResume').classList.toggle('hidden',!stopped);
  $('websiteStopped').classList.toggle('hidden',!stopped);
+ setWebsiteClickGuard(websiteControlsUnlocked);
 }
 function setWebsitePlayer(s){
  const external=s?.source==='website'&&verifiedCatalogPlayer(s);
