@@ -310,6 +310,10 @@ function setSourceTab(tab){
 }
 $('tabMovies').onclick=()=>setSourceTab('movies');
 
+$('tabYouTube').onclick=()=>setSourceTab('youtube');
+$('youtubeBrowse').onclick=()=>openExplore();
+setSourceTab('movies');
+
 /* Mobile watch-first navigation. Keep actual video/rooms/chats in their
    original DOM containers; only reveal lightweight sheets on touch layouts. */
 const mobileIsCompact=()=>matchMedia('(max-width:800px), (pointer:coarse) and (max-width:1050px)').matches;
@@ -407,9 +411,6 @@ window.addEventListener('resize',()=>{
 updateMobileChrome();
 updateMobilePeopleCount();
 
-$('tabYouTube').onclick=()=>setSourceTab('youtube');
-$('youtubeBrowse').onclick=()=>openExplore();
-setSourceTab('movies');
 // Streambert-inspired movie catalogue. TMDB supplies metadata only; sources are
 // provider-controlled embedded sites, not direct playable video under our control.
 // Movie IDs are internal to the catalogue. Viewers select a title instead.
