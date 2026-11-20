@@ -358,6 +358,13 @@ async function check(){
    chatOpen:typeof chatOpen==='undefined'?'missing':chatOpen,
    theater:theaterActive(),full:document.fullscreenElement?.id,
    navDisplay:getComputedStyle(document.getElementById('mobileNav')).display,
+   navRect:document.getElementById('mobileNav').getBoundingClientRect().toJSON(),
+   navPeopleDisplay:getComputedStyle(document.getElementById('mobileNavPeople')).display,
+   navPeopleVisibility:getComputedStyle(document.getElementById('mobileNavPeople')).visibility,
+   navPeopleRect:document.getElementById('mobileNavPeople').getBoundingClientRect().toJSON(),
+   watchDisplay:getComputedStyle(document.getElementById('watch')).display,
+   watchRect:document.getElementById('watch').getBoundingClientRect().toJSON(),
+   viewport:{w:innerWidth,h:innerHeight,visualW:visualViewport?.width,visualH:visualViewport?.height},
    mediaSelected:lastState?.selectedMedia,
    fallback:theaterFallback
   }));
