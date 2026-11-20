@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/bluehour.css?v=1">
 <link rel="stylesheet" href="/layout-fixes.css?v=2">
 <link rel="stylesheet" href="/simplify.css?v=1"><link rel="stylesheet" href="/cinema-dock.css?v=1">
-<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=7">
+<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=8">
 </head>
 <body>
 <header class="site-header">
@@ -123,45 +123,58 @@
           <button id="load" class="secondary-button small">Play now</button>
         </div>
         <div class="website-source-form" id="websiteSource">
-          <section id="movieCatalog" class="movie-catalog" aria-label="Movies and series">
-            <div class="website-source-header">
-              <span class="eyebrow">MOVIES &amp; SERIES <span class="website-experimental">EXPERIMENTAL</span></span>
-              <span class="website-source-caption">Choose a title and a third-party player. The room shares the player address, not the stream.</span>
+          <section id="movieCatalog" class="movie-catalog" aria-label="Find movies and TV series">
+            <div class="catalog-heading">
+              <div>
+                <span class="eyebrow">MOVIES &amp; SERIES <span class="website-experimental">EXPERIMENTAL</span></span>
+                <p class="catalog-tagline">What should we watch together?</p>
+              </div>
+              <span class="catalog-search-caption">Search by name. No movie IDs required.</span>
             </div>
-            <form id="catalogSearchForm" class="catalog-search-form">
-              <label class="sr-only" for="catalogQuery">Search movie or TV series</label>
-              <input id="catalogQuery" type="search" maxlength="80" autocomplete="off" placeholder="Search for a movie or TV series…">
-              <button class="secondary-button small" type="submit">Find title</button>
+            <form id="catalogSearchForm" class="catalog-search-form" role="search" autocomplete="off">
+              <label class="sr-only" for="catalogQuery">Search movies and TV series by title</label>
+              <input id="catalogQuery" type="search" maxlength="80" autocomplete="off"
+                aria-controls="catalogResults" placeholder="Search a movie or series… e.g. Interstellar">
+              <button class="secondary-button small" type="submit">Search</button>
             </form>
-            <div id="catalogResults" class="catalog-results" aria-live="polite"></div>
-            <form id="catalogPlayForm" class="catalog-play-form">
-              <label>Type
-                <select id="catalogType">
-                  <option value="movie">Movie</option>
-                  <option value="tv">TV series</option>
-                </select>
-              </label>
-              <label>TMDB ID
-                <input id="catalogId" type="number" min="1" max="999999999" step="1" required placeholder="e.g. 550">
-              </label>
-              <label class="catalog-tv-only hidden">Season
-                <input id="catalogSeason" type="number" min="1" max="99" step="1" value="1">
-              </label>
-              <label class="catalog-tv-only hidden">Episode
-                <input id="catalogEpisode" type="number" min="1" max="999" step="1" value="1">
-              </label>
-              <label>Source
-                <select id="catalogProvider">
-                  <option value="vidsrc">VidSrc</option>
-                  <option value="vidfast">Vidfast</option>
-                  <option value="vidlove">Vidlove</option>
-                </select>
-              </label>
-              <button id="catalogPlay" class="secondary-button small" type="submit">Play in room</button>
+            <div class="catalog-examples" id="catalogExamples" aria-label="Example title searches">
+              <span>Try searching</span>
+              <button type="button" class="catalog-example" data-catalog-query="Interstellar">Interstellar</button>
+              <button type="button" class="catalog-example" data-catalog-query="The Matrix">The Matrix</button>
+              <button type="button" class="catalog-example" data-catalog-query="Breaking Bad">Breaking Bad</button>
+            </div>
+            <p id="catalogStatus" class="catalog-help" role="status" aria-live="polite">Start typing to see movie and series suggestions.</p>
+            <div id="catalogResults" class="catalog-results" aria-label="Movie and TV search suggestions"></div>
+            <form id="catalogPlayForm" class="catalog-play-form hidden" aria-label="Share selected movie or series">
+              <div class="catalog-selection">
+                <div>
+                  <strong id="catalogSelectedTitle">Choose a title</strong>
+                  <span id="catalogSelectedMeta">Select a movie or TV series above</span>
+                </div>
+                <button id="catalogChangeTitle" type="button" class="catalog-change-title">Change title</button>
+              </div>
+              <input id="catalogType" type="hidden" value="movie">
+              <input id="catalogId" type="hidden" value="">
+              <div class="catalog-play-options">
+                <label class="catalog-tv-only hidden">Season
+                  <input id="catalogSeason" type="number" min="1" max="99" step="1" value="1">
+                </label>
+                <label class="catalog-tv-only hidden">Episode
+                  <input id="catalogEpisode" type="number" min="1" max="999" step="1" value="1">
+                </label>
+                <label>Playback source
+                  <select id="catalogProvider">
+                    <option value="vidsrc">VidSrc</option>
+                    <option value="vidfast">Vidfast</option>
+                    <option value="vidlove">Vidlove</option>
+                  </select>
+                </label>
+                <button id="catalogPlay" class="secondary-button small" type="submit">Watch with room</button>
+              </div>
+              <p class="catalog-source-note">These are experimental third-party players. If one does not load, you can try another source.</p>
             </form>
-            <p id="catalogStatus" class="catalog-help" aria-live="polite">Search requires server-side TMDB credentials. You can also enter a TMDB ID directly.</p>
             <p id="catalogNowPlaying" class="catalog-now-playing" aria-live="polite"></p>
-            <p class="catalog-disclaimer">Third-party players are unverified and may contain ads, block embedding, or lack screening rights. Use only content you're authorized to watch. Source playback is not synchronized. Movie metadata by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>; this product is not endorsed or certified by TMDB.</p>
+            <p class="catalog-disclaimer">Sources may contain ads or block embedding. Only watch content you are authorized to access; third-party playback is not synchronized. Title metadata from <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> or <a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>. This product is not endorsed or certified by TMDB.</p>
           </section>
           <div class="website-source-header">
             <span class="eyebrow">WEBSITE PLAYER <span class="website-experimental">BETA</span></span>
@@ -259,6 +272,6 @@
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=18"></script>
+<script src="/app.js?v=19"></script>
 </body>
 </html>

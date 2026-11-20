@@ -176,3 +176,92 @@
  .catalog-play-form button{width:100%}
  .catalog-play-form input,.catalog-play-form select{font-size:16px}
 }
+
+/* Title-first discovery: posters/results are primary, internal IDs stay hidden. */
+.catalog-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.catalog-tagline{
+ margin:6px 0 0;font-size:clamp(16px,2.2vw,21px);font-weight:750;
+ line-height:1.24;color:#f4eee5;letter-spacing:-.03em;
+}
+.catalog-search-caption{color:#aac4d6;font-size:11px;max-width:166px;text-align:right;line-height:1.45}
+.catalog-search-form{margin:13px 0 7px;gap:8px}
+.catalog-search-form input{
+ padding:13px 14px;font-size:15px;border-radius:9px;
+ background:#0b1827;border:1px solid #4a6680;
+ box-shadow:inset 0 1px 1px rgba(0,0,0,.14);
+}
+.catalog-search-form input:focus{outline:2px solid #d5a96d;outline-offset:1px}
+.catalog-search-form button{padding:9px 15px;border-radius:9px;font-weight:700}
+.catalog-examples{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:3px 0 7px}
+.catalog-examples>span{font-size:10px;color:#92b2c6;margin-right:3px}
+.catalog-example{
+ border:1px solid #455c71;background:#1a2c3c;color:#d5e1e8;
+ border-radius:999px;font-size:10px;font-weight:650;padding:5px 9px;
+ cursor:pointer;
+}
+.catalog-example:hover,.catalog-example:focus-visible{background:#30536b;outline-offset:2px}
+.catalog-results{
+ display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+ gap:9px;margin:12px 0;max-height:400px;overflow-y:auto;overscroll-behavior:contain;
+ scrollbar-width:thin;
+}
+.catalog-result{
+ position:relative;display:flex;gap:10px;align-items:flex-start;
+ padding:9px;border:1px solid #3d5669;border-radius:10px;min-height:103px;
+ background:linear-gradient(135deg,#192e40,#132333);
+ transition:background .15s,border-color .15s,transform .15s;
+}
+.catalog-result:hover,.catalog-result:focus-visible{
+ background:#24435b;border-color:#c8a46f;transform:translateY(-1px);
+}
+.catalog-result.is-selected{border-color:#e3b77d;box-shadow:0 0 0 1px #e3b77d}
+.catalog-result-poster{
+ width:58px;height:86px;border-radius:6px;background:#2e4356;
+ font-size:25px;flex:none;overflow:hidden;
+}
+.catalog-result-poster img{width:100%;height:100%;object-fit:cover}
+.catalog-result-details{gap:6px;padding:3px 0 15px}
+.catalog-result-details strong{font-size:12px;line-height:1.4;color:#f3f4f1}
+.catalog-result-details small{font-size:10px;line-height:1.35;color:#a7c0d1}
+.catalog-result-action{
+ position:absolute;bottom:9px;right:10px;font-size:9px;
+ color:#deb783;letter-spacing:.015em;font-weight:750;
+}
+.catalog-play-form{
+ display:flex;flex-direction:column;gap:12px;margin:10px 0 0;
+ padding:14px;border:1px solid #59768a;border-radius:11px;
+ background:linear-gradient(140deg,#203c4e,#102a39);
+}
+.catalog-play-form.hidden{display:none!important}
+.catalog-selection{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.catalog-selection>div{display:flex;flex-direction:column;gap:4px}
+.catalog-selection strong{font-size:15px;line-height:1.3;color:#f5f0e9}
+.catalog-selection span{font-size:10px;color:#b2cfde}
+.catalog-change-title{
+ background:transparent;border:1px solid #7794a8;border-radius:7px;
+ color:#e7edf3;font-size:10px;padding:6px 8px;cursor:pointer;white-space:nowrap;
+}
+.catalog-play-options{display:flex;flex-wrap:wrap;gap:9px;align-items:end}
+.catalog-play-options label{
+ display:flex;flex-direction:column;flex:1 1 95px;gap:6px;
+ font-size:11px;color:#b6d1e0;min-width:84px;
+}
+.catalog-play-options label.hidden{display:none!important}
+.catalog-play-options input,.catalog-play-options select{
+ min-width:0;width:100%;padding:10px 8px;background:#0b1d2b;
+ color:#f4f1eb;border:1px solid #56758a;border-radius:7px;font-size:13px;
+}
+.catalog-play-options button{min-height:37px;padding:8px 13px;font-weight:750}
+.catalog-source-note{font-size:10px;line-height:1.45;color:#afc3ce;margin:0}
+.catalog-help{margin:9px 0 0}
+@media(max-width:700px){
+ .catalog-heading{flex-direction:column;gap:3px}
+ .catalog-search-caption{text-align:left;max-width:none}
+ .catalog-search-form input{font-size:16px}
+ .catalog-results{grid-template-columns:1fr;max-height:340px}
+ .catalog-result{min-height:91px}
+ .catalog-result-poster{width:52px;height:76px}
+ .catalog-play-options label{flex:1 1 35%}
+ .catalog-play-options input,.catalog-play-options select{font-size:16px}
+ .catalog-play-options button{width:100%}
+}

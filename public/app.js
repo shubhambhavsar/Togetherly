@@ -298,72 +298,153 @@ $('suggestFlexflix').onclick=()=>{
 };
 // Streambert-inspired movie catalogue. TMDB supplies metadata only; sources are
 // provider-controlled embedded sites, not direct playable video under our control.
-let catalogChoice=null;
+// Movie IDs are internal to the catalogue. Viewers select a title instead.
+let catalogChoice=null,catalogSearchTimer=null,catalogSearchController=null,catalogSearchSequence=0;
 function catalogEpisodeFields(){
  const tv=$('catalogType').value==='tv';
  document.querySelectorAll('#movieCatalog .catalog-tv-only').forEach(n=>n.classList.toggle('hidden',!tv));
 }
-$('catalogType').onchange=()=>{catalogChoice=null;catalogEpisodeFields()};
-$('catalogId').oninput=()=>{catalogChoice=null};
-catalogEpisodeFields();
-$('catalogSearchForm').onsubmit=async event=>{
- event.preventDefault();
- const q=$('catalogQuery').value.trim(),out=$('catalogResults');
- if(q.length<2)return;
+function catalogClearSelection(){
+ catalogChoice=null;
+ $('catalogId').value='';
+ $('catalogPlayForm').classList.add('hidden');
+}
+function catalogSelectTitle(item){
+ if(!item||!Number.isSafeInteger(item.id)||!['movie','tv'].includes(item.type))return;
+ catalogChoice={id:item.id,type:item.type,title:item.title};
+ $('catalogType').value=item.type;
+ $('catalogId').value=String(item.id);
+ $('catalogSelectedTitle').textContent=item.title;
+ $('catalogSelectedMeta').textContent=(item.type==='movie'?'Movie':'TV series')+
+  (item.year?' · '+item.year:'');
+ catalogEpisodeFields();
+ $('catalogPlayForm').classList.remove('hidden');
+ $('catalogStatus').textContent='Selected '+item.title+'. Choose a playback source and watch with your room.';
+ document.querySelectorAll('#catalogResults .catalog-result').forEach(button=>{
+  const selected=button.dataset.catalogKey===item.type+':'+item.id;
+  button.classList.toggle('is-selected',selected);
+  button.setAttribute('aria-pressed',String(selected));
+ });
+ $('catalogPlayForm').scrollIntoView?.({behavior:'smooth',block:'nearest'});
+}
+function catalogShowResults(results,source){
+ const out=$('catalogResults');
  out.replaceChildren();
- $('catalogStatus').textContent='Looking up movie and series titles…';
- try{
-  const response=await fetch('/api/catalog/search?q='+encodeURIComponent(q),{credentials:'same-origin'});
-  const data=await response.json();
-  if(!response.ok)throw Error(data.error||'Search failed');
-  const results=Array.isArray(data.results)?data.results:[];
-  $('catalogStatus').textContent=results.length
-   ?'Select a title, choose its source, and select Play in room.'
-   :'No matching titles found. You can also enter a TMDB ID.';
-  for(const item of results){
-   if(!Number.isSafeInteger(item.id)||!['movie','tv'].includes(item.type))continue;
-   const row=document.createElement('button');row.type='button';row.className='catalog-result';
-   const poster=document.createElement('span');poster.className='catalog-result-poster';
-   if(typeof item.poster==='string'&&item.poster.startsWith('https://image.tmdb.org/t/p/w92/')){
-    const img=document.createElement('img');img.src=item.poster;img.alt='';img.loading='lazy';poster.append(img);
-   }else poster.textContent='🎬';
-   const details=document.createElement('span');details.className='catalog-result-details';
-   const title=document.createElement('strong');title.textContent=item.title;
-   const subtitle=document.createElement('small');
-   subtitle.textContent=(item.type==='movie'?'Movie':'TV series')+(item.year?' · '+item.year:'');
-   details.append(title,subtitle);row.append(poster,details);
-   row.onclick=()=>{
-    $('catalogType').value=item.type;
-    $('catalogId').value=String(item.id);
-    catalogChoice={id:item.id,type:item.type,title:item.title};
-    catalogEpisodeFields();
-    $('catalogStatus').textContent='Selected '+item.title+'. Choose a source'+
-      (item.type==='tv'?', season and episode':'')+' and select Play in room.';
-   };
-   out.append(row);
+ for(const item of results){
+  if(!Number.isSafeInteger(item.id)||!['movie','tv'].includes(item.type))continue;
+  const row=document.createElement('button');
+  row.type='button';
+  row.className='catalog-result';
+  row.dataset.catalogKey=item.type+':'+item.id;
+  row.setAttribute('aria-pressed','false');
+  const poster=document.createElement('span');poster.className='catalog-result-poster';
+  if(typeof item.poster==='string'&&item.poster.startsWith('https://image.tmdb.org/t/p/w92/')){
+   const img=document.createElement('img');img.src=item.poster;img.alt='';img.loading='lazy';
+   poster.append(img);
+  }else poster.textContent=item.type==='tv'?'📺':'🎬';
+  const details=document.createElement('span');details.className='catalog-result-details';
+  const title=document.createElement('strong');title.textContent=item.title;
+  const subtitle=document.createElement('small');
+  subtitle.textContent=(item.type==='movie'?'Movie':'TV series')+
+   (item.year?' · '+item.year:'');
+  details.append(title,subtitle);
+  if(item.description){
+   const info=document.createElement('small');
+   info.textContent=String(item.description).slice(0,90);
+   details.append(info);
   }
- }catch(error){$('catalogStatus').textContent=error.message||'Movie lookup failed'}
+  const action=document.createElement('span');action.className='catalog-result-action';
+  action.textContent='Select';
+  row.append(poster,details,action);
+  row.onclick=()=>catalogSelectTitle(item);
+  out.append(row);
+ }
+ $('catalogStatus').textContent=out.childElementCount
+  ?'Choose a title from the results.'+
+    (source==='Wikidata'?' Limited results from Wikidata; some titles may be missing.':'')
+  :'No matching movies or series found. Try a different spelling or more of the title.';
+}
+async function catalogSearchNow(){
+ const q=$('catalogQuery').value.trim();
+ if(catalogSearchController)catalogSearchController.abort();
+ catalogSearchController=null;
+ const searchId=++catalogSearchSequence;
+ if(q.length<2){
+  $('catalogResults').replaceChildren();
+  $('catalogStatus').textContent='Type at least two characters to see suggestions.';
+  return;
+ }
+ $('catalogStatus').textContent='Finding movies and series…';
+ $('catalogResults').replaceChildren();
+ const controller=new AbortController();
+ catalogSearchController=controller;
+ try{
+  const response=await fetch('/api/catalog/search?q='+encodeURIComponent(q),{
+   credentials:'same-origin',signal:controller.signal
+  });
+  const data=await response.json();
+  if(searchId!==catalogSearchSequence)return;
+  if(!response.ok)throw Error(data.error||'Movie search failed');
+  catalogShowResults(Array.isArray(data.results)?data.results:[],data.source);
+ }catch(error){
+  if(controller.signal.aborted||searchId!==catalogSearchSequence)return;
+  $('catalogStatus').textContent=error?.message||'Movie search is temporarily unavailable.';
+  $('catalogResults').replaceChildren();
+ }
+}
+$('catalogQuery').addEventListener('input',()=>{
+ clearTimeout(catalogSearchTimer);
+ if(catalogSearchController)catalogSearchController.abort();
+ catalogSearchSequence++;
+ catalogClearSelection();
+ if($('catalogQuery').value.trim().length<2){
+  catalogSearchNow();return;
+ }
+ catalogSearchTimer=setTimeout(catalogSearchNow,390);
+});
+$('catalogSearchForm').onsubmit=event=>{
+ event.preventDefault();
+ clearTimeout(catalogSearchTimer);
+ catalogClearSelection();
+ catalogSearchNow();
 };
+document.querySelectorAll('#catalogExamples .catalog-example').forEach(button=>{
+ button.onclick=()=>{
+  $('catalogQuery').value=button.dataset.catalogQuery||'';
+  $('catalogQuery').focus();
+  catalogClearSelection();
+  clearTimeout(catalogSearchTimer);
+  catalogSearchNow();
+ };
+});
+$('catalogChangeTitle').onclick=()=>{
+ catalogClearSelection();
+ $('catalogQuery').focus();
+ $('catalogStatus').textContent='Choose another result or search for a different title.';
+};
+catalogEpisodeFields();
 $('catalogPlayForm').onsubmit=event=>{
  event.preventDefault();
  if(!room)return toast('Join a room before sharing a movie');
  const type=$('catalogType').value,id=Number($('catalogId').value);
+ if(!catalogChoice||catalogChoice.id!==id||catalogChoice.type!==type){
+  return toast('Select a movie or series from the suggestions first');
+ }
  const season=Number($('catalogSeason').value),episode=Number($('catalogEpisode').value);
- if(!Number.isSafeInteger(id)||id<1||id>999999999)return toast('Enter a valid TMDB ID');
  if(type==='tv'&&(!Number.isSafeInteger(season)||season<1||season>99||
-  !Number.isSafeInteger(episode)||episode<1||episode>999))return toast('Enter a valid season and episode');
- const button=$('catalogPlay');
- button.disabled=true;
- const title=catalogChoice?.id===id&&catalogChoice?.type===type?catalogChoice.title:'';
+  !Number.isSafeInteger(episode)||episode<1||episode>999)){
+  return toast('Enter a valid season and episode');
+ }
+ const button=$('catalogPlay');button.disabled=true;
+ $('catalogStatus').textContent='Sharing '+catalogChoice.title+' with your room…';
  socket.timeout(9000).emit('catalog:play',{
-  type,id,season,episode,provider:$('catalogProvider').value,title
+  type,id,season,episode,provider:$('catalogProvider').value,title:catalogChoice.title
  },(error,ack)=>{
   button.disabled=false;
   if(error||ack?.error){
-   $('catalogStatus').textContent=ack?.error||'Could not load this source';
-   return
+   $('catalogStatus').textContent=ack?.error||'Could not load this source';return;
   }
-  $('catalogStatus').textContent='Source shared. If embedding is blocked, use the player compatibility option. Everyone loads the page independently.';
+  $('catalogStatus').textContent='Player shared. Each viewer loads the third-party source independently. If it fails, try a different source.';
  });
 };
 $('websiteForm').onsubmit=event=>{
