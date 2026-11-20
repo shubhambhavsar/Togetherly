@@ -1211,3 +1211,18 @@ test('movie frame blocks popups and nested fullscreen while keeping Togetherly t
  assert.ok(frontend.includes('theaterShell.requestFullscreen('));
  assert.ok(html.includes('id="callOverlay"'));
 });
+
+test('landing alignment uses one centered mobile column without changing the watch room',()=>{
+ const css=fs.readFileSync(path.join(root,'public/mobile-landing.css'),'utf8');
+ assert.ok(html.includes('/mobile-landing.css?v=1'),'Landing stylesheet should be loaded');
+ assert.ok(html.indexOf('/mobile-landing.css?v=1')>html.indexOf('/theme-variants.css?v=1'),
+  'Mobile landing overrides must follow both visual themes');
+ assert.ok(css.includes('#landing.landing'),'Layout must be scoped to welcome screen');
+ assert.ok(css.includes('grid-template-columns:minmax(0,1fr)!important'));
+ assert.ok(css.includes('width:min(calc(100% - 32px),520px)!important'));
+ assert.ok(css.includes('#landing .landing-copy')&&css.includes('#landing .landing-entry'));
+ assert.ok(css.includes('#landing #name')&&css.includes('#landing #create'));
+ assert.ok(css.includes('font-size:16px!important'),'Prevent Safari input focus zoom');
+ assert.ok(css.includes('env(safe-area-inset-bottom)'),'Respect phone gesture area');
+ assert.ok(!css.includes('#watch'),'Landing alignment must not modify movie/camera screens');
+});
