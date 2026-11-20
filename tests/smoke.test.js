@@ -469,7 +469,7 @@ test('movie title suggestions work without a TMDB key using Wikidata IDs',async(
 });
 test('movie discovery never asks users to know a TMDB ID',()=>{
  const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
- assert.ok(html.includes('id="catalogQuery"')&&html.includes('placeholder="Search a movie or series'));
+ assert.ok(html.includes('id="catalogQuery"')&&html.includes('placeholder="Search films &amp; series'));
  assert.ok(html.includes('data-catalog-query="Interstellar"'));
  assert.ok(html.includes('id="catalogPlayForm" class="catalog-play-form hidden"'),'Watch options should appear only after selecting a title');
  assert.ok(html.includes('id="catalogId" type="hidden"'),'TMDB IDs must be internal');
