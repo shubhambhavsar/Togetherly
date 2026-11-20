@@ -389,12 +389,17 @@ $('mobileNavChat').onclick=async()=>{
 $('mobileClosePicker').onclick=()=>mobileClosePanels();
 $('mobileClosePeople').onclick=()=>mobileClosePanels();
 $('mobileSheetBackdrop').onclick=()=>mobileClosePanels();
-// Mobile Close must win over bubbling/focus handlers from the legacy chat drawer.
-$('closeChat').addEventListener('click',event=>{
- if(!mobileIsCompact())return;
- event.preventDefault();event.stopImmediatePropagation();
+// Touching Close while the keyboard is up can resize the viewport before
+// mouseup/click fires. Close on pointerdown; retain click for keyboard/AT.
+function onMobileChatClose(event){
+ if(!mobileIsCompact()||!chatOpen)return;
+ event.preventDefault();
+ event.stopPropagation();
+ if(event.type==='click')event.stopImmediatePropagation();
  mobileClosePanels();
-},true);
+}
+$('closeChat').addEventListener('pointerdown',onMobileChatClose,true);
+$('closeChat').addEventListener('click',onMobileChatClose,true);
 $('mobileRename').onclick=()=>$('rename').click();
 $('mobileLeave').onclick=()=>$('leave').click();
 $('mobileCatchup').onclick=()=>movieCatchupNow();
