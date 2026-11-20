@@ -89,7 +89,16 @@ async function check(){
   await guest.locator('#chatSend').click();
   await host.waitForFunction(()=>document.querySelector('#chat')?.textContent?.includes('Togetherly browser regression'),{timeout:12000});
   await guest.locator('#closeChat').click();
-  await guest.locator('#chatPanel.chat-open').waitFor({state:'hidden'});
+  await pause(160);
+  const chatClosing=await guest.evaluate(()=>({
+   className:document.getElementById('chatPanel').className,
+   body:document.body.className,
+   active:document.activeElement?.id,
+   handler:typeof document.getElementById('closeChat').onclick,
+   closeRect:document.getElementById('closeChat').getBoundingClientRect().toJSON()
+  }));
+  console.log('Chat dismissal diagnostic:',JSON.stringify(chatClosing));
+  await guest.locator('#chatPanel.chat-open').waitFor({state:'hidden',timeout:3500});
 
   await guest.setViewportSize({width:780,height:390});
   const landscape=await guest.evaluate(()=>({
