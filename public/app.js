@@ -1132,6 +1132,7 @@ function clearPeerRecovery(id){
 }
 function schedulePeerRecovery(id,pc,urgent=false){
  if(!callActive||!socket.connected||connections.get(id)!==pc)return;
+ if(pc.connectionState==='connected'||['connected','completed'].includes(pc.iceConnectionState))return;
  if(!participants.some(p=>p.id===id)||!callUser(id))return;
  let recovery=peerRecovery.get(id);
  if(!recovery){
