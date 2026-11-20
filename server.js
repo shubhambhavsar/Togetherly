@@ -477,8 +477,9 @@ s.on('movie:control',(d,ack)=>{
   d.action==='sample'?d.playing:r.movieTimeline.playing;
  const position=Math.min(86400,d.position);
  // Ignore tiny host event jitter rather than constantly adjusting the room.
- if(d.action==='sample'&&previous&&Math.abs(previous.position-position)<1.8&&
-    previous.playing===playing)return ack?.({ok:true});
+ if(d.action==='sample'&&previous&&r.movieTimeline.origin==='player'&&
+    Math.abs(previous.position-position)<1.8&&previous.playing===playing)
+  return ack?.({ok:true});
  r.movieTimeline={position,playing,at:now,
   origin:d.action==='sample'?'player':'manual'};
  io.to(r.id).emit('movie:timeline',roomMovieTimeline(r));
