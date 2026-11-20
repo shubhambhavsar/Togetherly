@@ -230,77 +230,100 @@ async function check(){
   assert.equal(publishingAfter,true,'Changing themes must not restart a WebRTC camera');
   await host.locator('#mobileNavPeople').click();
 
-  // Reproduce an embedded player that needs compatibility mode and attempts
-  // to open an ad tab. The third-party frame is intentionally unsandboxed
-  // when the room supplies an exact verified player URL; browser popup
-  // prevention is NOT guaranteed. Child fullscreen stays forbidden.
+  // A simulated cross-origin movie requests popup tabs on clicks, but also
+  // supports the optional provider postMessage play event. Permanent click
+  // protection must block every click while Togetherly's controls work.
   await host.locator('#mobileClosePeople').click();
   const unwantedTabs=[];
   host.on('popup',popup=>{unwantedTabs.push(popup.url());popup.close().catch(()=>{})});
   await host.route('https://unwanted.example/**',route=>route.abort());
-  await host.route('https://vidfast.vc/movie/603',route=>route.fulfill({
+  await host.route('https://vidfast.vc/movie/603*',route=>route.fulfill({
    status:200,contentType:'text/html',
    body:`<!doctype html><html><body style="margin:0;background:#121e2c;color:white">
-    <button id="simulatedPlayer" style="width:100%;height:100vh">Tap to play sample film</button>
+    <button id="simulatedPlayer" style="width:100%;height:100vh">Tap movie to open popup</button>
     <script>
-      document.getElementById('simulatedPlayer').addEventListener('click',async()=>{
-       const popup=window.open('https://unwanted.example/', '_blank');
-       document.body.dataset.popup=popup?'opened':'blocked';
+      document.getElementById('simulatedPlayer').addEventListener('click',()=>{
        document.body.dataset.clicked='yes';
-       try{await document.documentElement.requestFullscreen();document.body.dataset.nativeFullscreen='allowed'}
-       catch(e){document.body.dataset.nativeFullscreen='blocked'}
+       window.open('https://unwanted.example/', '_blank');
+      });
+      window.addEventListener('message',({data})=>{
+       if(data?.command==='play'){
+        document.body.dataset.command='play';
+        window.parent.postMessage({
+         type:'PLAYER_EVENT',data:{event:'play',currentTime:110,playing:true,tmdbId:603,mediaType:'movie'}
+        },'*');
+       }
       });
     </script></body></html>`
   }));
   await host.evaluate(()=>{
+   window.__beforeMovieTest=lastState;
+   lastState={...lastState,source:'website',websiteUrl:'https://vidfast.vc/movie/603',
+    catalog:{provider:'vidfast',type:'movie',id:603}};
    document.getElementById('videoShell').classList.add('website-mode');
    document.getElementById('websitePlayer').classList.remove('hidden');
    websiteSelectedUrl='https://vidfast.vc/movie/603';
-   websiteStoppedFor=null;
+   websiteStoppedFor=null;movieLocalPaused=false;
    loadWebsiteFrame(websiteSelectedUrl,true);
   });
   const movieFrame=host.locator('#websiteFrame');
   assert.equal(await movieFrame.getAttribute('sandbox'),null,
-   'Verified movie playback should remain unsandboxed for compatibility');
+   'The approved movie embed remains unsandboxed for compatibility');
   assert.equal(await movieFrame.getAttribute('allowfullscreen'),null);
   const shield=host.locator('#websiteClickShield');
   await shield.waitFor({state:'visible'});
-  assert.equal(await host.locator('#websiteInteractionToggle').getAttribute('aria-pressed'),'false');
-  await shield.click({position:{x:15,y:18}});
-  const testFrame=host.frameLocator('#websiteFrame').locator('body');
-  assert.equal(await testFrame.getAttribute('data-clicked'),null,
-   'Protected video taps must not reach the third-party player');
-  assert.equal(unwantedTabs.length,0,'Protected video clicks must not launch tabs');
-  await host.locator('#websiteUnlock').click();
-  await shield.waitFor({state:'hidden'});
-  assert.equal(await host.locator('#websiteInteractionToggle').getAttribute('aria-pressed'),'true');
-  await host.frameLocator('#websiteFrame').locator('#simulatedPlayer').click();
-  await host.frameLocator('#websiteFrame').locator('body[data-clicked="yes"]').waitFor({state:'attached'});
-  assert.ok(['opened','blocked'].includes(await testFrame.getAttribute('data-popup')),
-   'Unlocked controls may allow popups; provider and browser policy vary');
-  assert.equal(await testFrame.getAttribute('data-native-fullscreen'),'blocked');
-  // We explicitly do not claim every unlocked click is safe.
-  assert.ok(unwantedTabs.length<=1,'Only one intentional unlocked popup attempt is expected');
-  await host.locator('#websiteInteractionToggle').click();
+  await shield.click({position:{x:12,y:12}});
+  assert.equal(await host.frameLocator('#websiteFrame').locator('body').getAttribute('data-clicked'),null,
+   'Movie background taps must never reach cross-origin content');
+  assert.equal(unwantedTabs.length,0,'Protected movie taps must not create new tabs');
+  assert.equal(await host.locator('#websitePlayer').getAttribute('class')?.then(v=>v.includes('click-protected')),true);
+  for(const width of [320,390,430]){
+   await host.setViewportSize({width,height:844});
+   const g=await host.evaluate(()=>{
+    const shield=document.getElementById('websiteClickShield').getBoundingClientRect();
+    return {width:innerWidth,scroll:document.documentElement.scrollWidth-innerWidth,
+     buttons:['movieLocalBack','movieLocalPlay','movieLocalPause','movieLocalForward'].map(id=>{
+      const r=document.getElementById(id).getBoundingClientRect();
+      return {id,x:r.x,right:r.right,width:r.width,height:r.height,inside:r.x>=shield.x-2&&r.right<=shield.right+2};
+     })};
+   });
+   assert.ok(g.scroll<=2,'No horizontal overflow with owned controls at '+width);
+   assert.ok(g.buttons.every(x=>x.inside&&x.width>=47&&x.height>=40),
+    'Movie controls must be usable on phone: '+JSON.stringify(g));
+  }
+  await host.setViewportSize({width:390,height:844});
+  await host.locator('#movieLocalPlay').click();
+  await host.frameLocator('#websiteFrame').locator('body[data-command="play"]').waitFor({state:'attached'});
+  assert.match(await host.locator('#movieLocalStatus').textContent(),/Playing confirmed/);
+  assert.equal(unwantedTabs.length,0,'Programmatic play must not click third-party ads');
+  await host.locator('#movieLocalPause').click();
+  assert.equal(await movieFrame.getAttribute('src'),null,'Pause must unload media to stop audio/video reliably');
+  assert.match(await host.locator('#movieLocalStatus').textContent(),/Paused near/);
   await shield.waitFor({state:'visible'});
-  const countAfterLock=unwantedTabs.length;
-  await shield.click({position:{x:15,y:18}});
-  assert.equal(unwantedTabs.length,countAfterLock,'Relocked movie clicks must not create new tabs');
-  assert.equal(await host.locator('#websiteInteractionToggle').getAttribute('aria-pressed'),'false');
-  assert.equal(host.url(),url,'Third-party player must not navigate Togetherly');
+  await host.locator('#movieLocalForward').click();
+  assert.match(await host.locator('#movieLocalStatus').textContent(),/Resume to play from here/);
+  await host.locator('#movieLocalPlay').click();
+  const reloadUrl=await movieFrame.getAttribute('src');
+  assert.ok(reloadUrl?.startsWith('https://vidfast.vc/movie/603?startAt=')&&reloadUrl.includes('autoPlay=true'),
+   'Resume uses documented startAt and autoplay options');
+  await shield.waitFor({state:'visible'});
+  await shield.click({position:{x:12,y:12}});
+  assert.equal(unwantedTabs.length,0,'Permanent shield still intercepts taps after reload');
+  assert.equal(host.url(),url,'Third-party frame must not navigate Togetherly in test');
   await host.locator('#toolbarFullscreen').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'visible'});
-  assert.equal(await host.locator('#callOverlay').isVisible(),true,'Togetherly fullscreen must preserve call overlay');
+  assert.equal(await host.locator('#callOverlay').isVisible(),true,'Theater must keep camera tiles above movie');
   await host.locator('#fullscreenToggle').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'hidden'});
   await host.evaluate(()=>{
    unloadWebsiteFrame();
    websiteSelectedUrl=null;
+   lastState=window.__beforeMovieTest;
    document.getElementById('videoShell').classList.remove('website-mode');
    document.getElementById('websitePlayer').classList.add('hidden');
   });
   assert.equal(await movieFrame.getAttribute('sandbox'),'allow-scripts allow-same-origin allow-forms',
-   'Stopped movie frame must regain its security sandbox');
+   'Stopped player must regain iframe sandbox');
   await host.locator('#mobileNavPeople').click();
 
   // Separate browser storage from the host; real guests have independent nicknames.

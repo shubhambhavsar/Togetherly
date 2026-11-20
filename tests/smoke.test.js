@@ -414,7 +414,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=26')&&html.includes('/website-player.css?v=9'));
+ assert.ok(html.includes('/app.js?v=27')&&html.includes('/website-player.css?v=10'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -482,7 +482,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=9')&&html.includes('/app.js?v=26'));
+ assert.ok(html.includes('/website-player.css?v=10')&&html.includes('/app.js?v=27'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -518,7 +518,7 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
 });
 
 test('unverified sources are not called safe and no antivirus bypass is attempted',()=>{
- assert.ok(html.includes('The player is click-protected by default. Unlocking controls may still open third-party tabs. Never bypass an antivirus warning.'));
+ assert.ok(html.includes('Togetherly controls the movie without passing taps into the third-party player. Play and seeking may reload or be blocked by autoplay settings. Never bypass an antivirus warning.'));
  assert.ok(!html.includes('option value="vidsrc"')&&!html.includes('option value="vidlove"'));
  assert.ok(!html.includes('id="openWebsite"'));
  assert.ok(!frontend.includes("window.confirm(message)"));
@@ -1062,7 +1062,7 @@ test('mobile movie finder has a dedicated responsive detail step',()=>{
  for(const id of ['catalogResultHeading','catalogResultCount','catalogSelectedPoster',
   'catalogSelectedDescription','catalogShareFeedback','catalogChangeTitle'])
   assert.ok(html.includes('id="'+id+'"'));
- assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=26'));
+ assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=27'));
  assert.ok(css.includes('.sr-only{')&&css.includes('clip-path:inset(50%)'));
  assert.ok(css.includes('grid-template-columns:minmax(0,1fr) 77px'),'Find action must stay beside input');
  assert.ok(css.includes('#watch #movieCatalog.is-title-selected #catalogResults'));
@@ -1237,64 +1237,102 @@ test('landing alignment uses one centered mobile column without changing the wat
   'Joining a room must hide the landing section explicitly');
 });
 
-test('unsandboxed movie uses a local protected-click shield instead of pretending to block remote popups',()=>{
+
+test('Togetherly movie uses permanent click protection with owned transport controls',()=>{
  const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
- assert.ok(html.includes('id="websiteClickShield"'));
- assert.ok(html.includes('id="websiteUnlock"'));
- assert.ok(html.includes('id="websiteInteractionToggle"'));
- assert.ok(html.includes('/website-player.css?v=9'));
- assert.ok(html.includes('/app.js?v=26'));
- assert.ok(frontend.includes('const MOVIE_CONTROL_WINDOW_MS=12000'));
- assert.ok(frontend.includes('function setWebsiteClickGuard(unlocked=false){'));
- assert.ok(frontend.includes("websitePlayer').classList.toggle('click-protected',active&&!websiteControlsUnlocked)"));
- assert.ok(frontend.includes("if(compatibilityMode)frame.removeAttribute('sandbox')"),'Movie compatibility remains unsandboxed');
- assert.ok(frontend.includes('setWebsiteClickGuard(false);'),'Movie refresh should re-enable accidental-click protection');
+ for(const id of ['websiteClickShield','movieLocalPlay','movieLocalPause','movieLocalBack',
+  'movieLocalForward','movieLocalStatus'])assert.ok(html.includes('id="'+id+'"'),'Missing '+id);
+ assert.ok(!html.includes('id="websiteUnlock"'));
+ assert.ok(!html.includes('id="websiteInteractionToggle"'));
+ assert.ok(html.includes('/website-player.css?v=10'));
+ assert.ok(html.includes('/app.js?v=27'));
+ assert.ok(frontend.includes('function movieLocalPause()'));
+ assert.ok(frontend.includes('function movieLocalPlay()'));
+ assert.ok(frontend.includes('function movieLocalSkip(delta)'));
+ assert.ok(frontend.includes("websitePlayer').classList.toggle('click-protected',active)"));
+ assert.ok(frontend.includes("if(compatibilityMode)frame.removeAttribute('sandbox')"));
  assert.ok(css.includes('.website-player.click-protected iframe'));
  assert.ok(css.includes('pointer-events:none!important'));
  assert.ok(css.includes('.website-click-shield:not(.hidden)'));
- assert.ok(!frontend.includes('window.open ='),'A parent window.open override cannot block popups inside a cross-origin iframe');
+ assert.ok(css.includes('.movie-local-buttons'));
+ assert.ok(!frontend.includes('MOVIE_CONTROL_WINDOW_MS'));
+ assert.ok(!frontend.includes('toggleWebsiteControls'),'No temporary unlock should survive');
+ assert.ok(!frontend.includes('window.open ='),'Do not claim parent can block cross-origin popup scripts');
 });
 
-test('movie interaction guard relocks after expiry and unload and does not interrupt the player',()=>{
- const start=frontend.indexOf('const MOVIE_CONTROL_WINDOW_MS=12000;');
+test('Togetherly hard pause stops the iframe, preserves local position and resumes without exposing clicks',()=>{
+ const start=frontend.indexOf('let movieLocalPaused=false');
  const end=frontend.indexOf('let websiteSelectedVersion=',start);
- assert.ok(start>0&&end>start);
- const segment=frontend.slice(start,end);
- const nodes=new Map(),timers=[];
- function element(id){
+ assert.ok(start>0&&end>start,'Transport module missing');
+ const source=frontend.slice(start,end),nodes=new Map(),calls=[],sent=[],timers=[];
+ let timestamp=22000,src='https://vidfast.vc/movie/603';
+ const elem=id=>{
   if(!nodes.has(id)){
    const flags=new Set(['hidden']),attrs={};
-   nodes.set(id,{flags,attrs,hasAttribute:k=>id==='websiteFrame'&&k==='src',
-    classList:{toggle:(name,flag)=>{flag?flags.add(name):flags.delete(name);return flag},
-     contains:name=>flags.has(name)},
-    setAttribute:(k,val)=>attrs[k]=val,
-    getAttribute:k=>attrs[k],textContent:'',onclick:null});
+   nodes.set(id,{attrs,flags,disabled:false,textContent:'',onclick:null,
+    hasAttribute:k=>id==='websiteFrame'&&k==='src'&&Boolean(src),
+    classList:{toggle:(c,v)=>v?flags.add(c):flags.delete(c),contains:c=>flags.has(c)},
+    setAttribute:(k,v)=>attrs[k]=v,
+    getAttribute:k=>attrs[k]});
   }
   return nodes.get(id);
- }
- let site='https://vidfast.vc/movie/603',stopped=null;
- const context={
-  $:element,
-  get websiteSelectedUrl(){return site},
-  get websiteStoppedFor(){return stopped},
-  setTimeout:(fn,ms)=>{const timer={fn,ms,cancelled:false};timers.push(timer);return timer},
-  clearTimeout:timer=>{timer.cancelled=true},
-  toast:()=>{}
  };
- vm.runInNewContext(segment+'\nthis.guard=setWebsiteClickGuard;this.getUnlock=()=>websiteControlsUnlocked;',context);
- context.guard(false);
- assert.equal(element('websiteClickShield').classList.contains('hidden'),false);
- assert.equal(element('websitePlayer').classList.contains('click-protected'),true);
- assert.equal(element('websiteInteractionToggle').getAttribute('aria-pressed'),'false');
- context.guard(true);
- assert.equal(element('websiteClickShield').classList.contains('hidden'),true);
- assert.equal(element('websitePlayer').classList.contains('click-protected'),false);
- assert.equal(timers.at(-1).ms,12000);
- timers.at(-1).fn();
- assert.equal(context.getUnlock(),false,'Player interactions must automatically relock');
- assert.equal(element('websiteClickShield').classList.contains('hidden'),false);
- site=null;
- context.guard(false);
- assert.equal(element('websiteClickShield').classList.contains('hidden'),true,'No overlay when movie exits');
- assert.equal(element('websiteInteractionToggle').classList.contains('hidden'),true);
+ const context={
+  $:elem,
+  websiteSelectedUrl:'https://vidfast.vc/movie/603',
+  websiteStoppedFor:null,
+  websiteSelectedVersion:0,
+  lastState:{version:7},
+  movieFrameLastProgress:null,movieFrameLastProgressAt:0,movieFrameLastPlaying:null,
+  movieFrameEventsSeen:false,
+  Date:class extends Date{static now(){return timestamp}},
+  verifiedCatalogPlayer:()=>true,
+  movieIsHost:()=>true,
+  movieSendControl:(...args)=>sent.push(args),
+  moviePositionText:sec=>String(Math.floor(sec))+'s',
+  movieEmbedUrl:(url,t)=>url+'?startAt='+Math.floor(t.position)+'&autoPlay=true',
+  moviePostCommand:()=>false,
+  updateWebsitePlayerActions:()=>{},
+  loadWebsiteFrame:(url,mode)=>{src=url;calls.push(['reload',url,mode]);context.guard()},
+  unloadWebsiteFrame:()=>{src='';calls.push(['unload']);context.guard()},
+  toast:()=>{},
+  setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length},
+  console
+ };
+ vm.runInNewContext(source+'\nthis.guard=setWebsiteClickGuard;this.localPause=movieLocalPause;this.localPlay=movieLocalPlay;this.localSkip=movieLocalSkip;this.seed=(p,t)=>{movieLocalExpectedStart=p;movieLocalStartAt=t};this.isPaused=()=>movieLocalPaused;',context);
+ context.seed(200,1000);
+ context.guard();
+ assert.equal(elem('websiteClickShield').classList.contains('hidden'),false);
+ assert.equal(elem('websitePlayer').classList.contains('click-protected'),true);
+ context.localPause();
+ assert.equal(calls[0][0],'unload');
+ assert.equal(context.isPaused(),true);
+ assert.equal(elem('websiteClickShield').classList.contains('hidden'),false,'Protected controls stay visible after pause');
+ assert.equal(elem('websitePlayer').classList.contains('click-protected'),true);
+ assert.equal(elem('movieLocalPause').disabled,true);
+ assert.ok(elem('movieLocalStatus').textContent.startsWith('Paused near 221s.'));
+ assert.equal(sent.at(-1)[0],'pause','Host room clock should follow hard pause');
+ context.localSkip(10);
+ assert.ok(elem('movieLocalStatus').textContent.includes('231s'));
+ context.localPlay();
+ assert.equal(context.isPaused(),false);
+ assert.ok(calls.some(c=>c[0]==='reload'&&c[1].includes('startAt=231')&&c[2]===true));
+ assert.equal(elem('websitePlayer').classList.contains('click-protected'),true,'Frame stays protected on resume');
+ assert.equal(sent.at(-1)[0],'play');
+ context.localSkip(-10);
+ assert.ok(calls.some(c=>c[0]==='reload'&&c[1].includes('startAt=221')));
+ assert.equal(sent.at(-1)[0],'seek');
+});
+
+test('movie pause survives room updates and never claims universal native iframe control',()=>{
+ assert.ok(frontend.includes("websiteStoppedFor!==url&&!movieLocalPaused&&!frame.hasAttribute('src')"),
+  'Room updates should not restart locally paused movie');
+ assert.ok(frontend.includes("loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:at,playing:true}),true)"));
+ assert.ok(frontend.includes("frame.setAttribute('src',url);"));
+ assert.ok(frontend.includes("function moviePostCommand(command,time,allowBeforeEvents=false)"));
+ assert.ok(frontend.includes("movieLocalStatus((playing?'Playing':'Paused')+' confirmed near "));
+ assert.ok(frontend.includes('if(event.origin!==MOVIE_PLAYER_ORIGIN||!websiteSelectedUrl||movieLocalPaused'));
+ assert.ok(frontend.includes('movieLocalPaused=false;++movieLocalCommandToken;'));
+ assert.ok(backend.includes('fullscreen=(self)'));
+ assert.ok(html.includes('id="callOverlay"'));
 });

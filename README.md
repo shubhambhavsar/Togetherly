@@ -245,24 +245,34 @@ without the iframe sandbox** to restore compatibility with player scripts,
 storage and embedded playback. Any non-verified future source must remain
 sandboxed. Source URL verification and `frame-src` CSP remain in place.
 
-**Accidental-click protection (local to each device):** the movie displays
-normally with a transparent click shield on top of the cross-origin iframe.
-Taps on the video while protected are intercepted by Togetherly instead of
-being passed to the provider. To use embedded Play, Pause, subtitle or server
-controls, press **Use controls**. Access lasts 12 seconds, then automatically
-relocks; **Lock player** in the toolbar also relocks it manually. Catch-up,
-movie changes and Stop movie reset protection. This feature is client-only,
-doesn't affect room timing or other viewers, and preserves the provider's
-unsandboxed playback compatibility.
+**Togetherly-owned playback controls (experimental, local to each device):**
+the cross-origin movie iframe has a **permanent click shield**. Every direct
+pointer tap on the movie is intercepted on Togetherly's own page; no
+`Use controls` unlock is provided. The overlaid control bar offers
+**Play, Pause, -10 seconds, +10 seconds**. Togetherly Theater still shows
+the room's camera tiles.
 
-**Security tradeoff:** an unsandboxed third-party player can still open a new
-browser tab while controls are **unlocked**, display inline ads, or attempt
-parent navigation. The browser's `beforeunload` warning is only best-effort.
-A normal website cannot guarantee blocking popups inside an unrestricted
-cross-origin iframe, and the transparent shield does **not** stop scripted
-popups that need no click. Avoid unexpected ads and antivirus overrides, and
-never enter credentials into a third-party player. Stop movie unloads the
-iframe without disconnecting chat or cameras.
+If the third-party player emits recognized `PLAYER_EVENT` messages, Togetherly
+can request playback via verified-origin `postMessage`, and read back reported
+position/state. **Do not mistake a sent command for playback confirmation.**
+For a provider that does not respond, Play/Seek **reload** its embed URL with
+documented `startAt` and `autoPlay` parameters. Pause always **unloads** the
+iframe so audio/video stop even if native pause commands are unsupported.
+The paused position is player-reported if available, otherwise *estimated*
+from the local clock and may drift during buffering/ads. Reopening the player
+may trigger buffering, startup ads, saved-progress overrides or a blocked
+autoplay. A fully reliable, seamless Play/Pause/Seek experience cannot be
+guaranteed without an official player API or a stream served with permission
+through Togetherly's own video element. Room clock controls remain approximate.
+
+**Security tradeoff:** the iframe is still unsandboxed for compatibility.
+Even with a permanent click shield, the provider can show in-frame ads or
+initiate popups/navigation **without a user click** if browser restrictions
+permit it. The parent webpage cannot intercept arbitrary cross-origin
+window-opening code; the browser's `beforeunload` prompt is best-effort.
+Do not bypass antivirus warnings, open suspicious tabs or enter passwords
+into external players. Stop movie unloads the provider without disconnecting
+the room's chat or camera sessions.
 
 The embedded provider's *native fullscreen* remains disabled via iframe
 allow-list and `Permissions-Policy: fullscreen=(self)`; use **Togetherly

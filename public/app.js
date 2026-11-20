@@ -727,34 +727,112 @@ const CATALOG_ALLOWED_PLAYERS=Object.freeze({
  vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
 let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false;
-const MOVIE_CONTROL_WINDOW_MS=12000;
-let websiteControlsUnlocked=false,websiteControlTimer=null;
-function setWebsiteClickGuard(unlocked=false){
- if(websiteControlTimer){clearTimeout(websiteControlTimer);websiteControlTimer=null}
- const active=Boolean(websiteSelectedUrl&&
-  websiteStoppedFor!==websiteSelectedUrl&&$('websiteFrame').hasAttribute('src'));
- websiteControlsUnlocked=Boolean(active&&unlocked);
- $('websitePlayer').classList.toggle('click-protected',active&&!websiteControlsUnlocked);
- $('websiteClickShield').classList.toggle('hidden',!active||websiteControlsUnlocked);
- const toggle=$('websiteInteractionToggle');
- toggle.classList.toggle('hidden',!active);
- toggle.textContent=websiteControlsUnlocked?'◈ Lock player':'◈ Use controls';
- toggle.setAttribute('aria-pressed',String(websiteControlsUnlocked));
- toggle.setAttribute('aria-label',websiteControlsUnlocked?'Lock movie player interactions':'Temporarily unlock movie player controls');
- if(websiteControlsUnlocked)websiteControlTimer=setTimeout(()=>{
-  websiteControlTimer=null;
-  setWebsiteClickGuard(false);
- },MOVIE_CONTROL_WINDOW_MS);
+// Togetherly owns all movie-area pointer interactions. The external iframe
+// never receives click/touch input, including during Play/Pause/Seek. The
+// cross-origin source stays unsandboxed for compatibility: scripted popups and
+// redirects remain possible, and native playback commands may be unsupported.
+let movieLocalPaused=false,movieLocalPausedAt=0;
+let movieLocalExpectedStart=0,movieLocalStartAt=0;
+let movieLocalFeedback='Playback requested. Player status is unverified.';
+let movieLocalCommandToken=0;
+function movieLocalCurrentTime(){
+ const elapsed=(start)=>Math.max(0,(Date.now()-start)/1000);
+ const estimate=movieLocalPaused?movieLocalPausedAt:
+  movieFrameLastProgress!==null&&movieFrameLastProgressAt?
+   movieFrameLastProgress+(movieFrameLastPlaying?elapsed(movieFrameLastProgressAt):0):
+   movieLocalExpectedStart+(movieLocalStartAt?elapsed(movieLocalStartAt):0);
+ return Math.max(0,Math.min(86400,Number.isFinite(estimate)?estimate:0));
 }
-function toggleWebsiteControls(){
+function movieLocalStatus(message){
+ movieLocalFeedback=message;
+ $('movieLocalStatus').textContent=message;
+}
+function setWebsiteClickGuard(){
+ const active=Boolean(websiteSelectedUrl&&websiteStoppedFor!==websiteSelectedUrl&&
+  ($('websiteFrame').hasAttribute('src')||movieLocalPaused));
+ $('websitePlayer').classList.toggle('click-protected',active);
+ $('websiteClickShield').classList.toggle('hidden',!active);
+ $('movieLocalPlay').disabled=!active;
+ $('movieLocalPause').disabled=!active||movieLocalPaused;
+ $('movieLocalBack').disabled=!active;
+ $('movieLocalForward').disabled=!active;
+ if(active)$('movieLocalStatus').textContent=movieLocalFeedback;
+}
+function movieLocalReload(position){
+ if(!websiteSelectedUrl||!verifiedCatalogPlayer(lastState))return false;
+ movieLocalPaused=false;
+ const at=Math.max(0,Math.min(86400,Math.floor(position)));
+ movieLocalExpectedStart=at;
+ movieLocalStartAt=Date.now();
+ loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:at,playing:true}),true);
+ websiteSelectedVersion=lastState.version;
+ updateWebsitePlayerActions(websiteSelectedUrl);
+ movieLocalStatus('Playback requested near '+moviePositionText(at)+'. Waiting for player confirmation.');
+ return true;
+}
+function movieLocalPlay(){
+ if(!websiteSelectedUrl||!verifiedCatalogPlayer(lastState)||
+    websiteStoppedFor===websiteSelectedUrl)return;
+ const wasPaused=movieLocalPaused;
+ const at=wasPaused?movieLocalPausedAt:movieLocalCurrentTime();
+ if(!wasPaused&&movieFrameLastPlaying===true&&
+    Date.now()-movieFrameLastProgressAt<4000){
+  movieLocalStatus('Player reports playing near '+moviePositionText(at)+'.');
+  return;
+ }
+ if(!wasPaused&&$('websiteFrame').hasAttribute('src')){
+  const currentToken=++movieLocalCommandToken;
+  if(moviePostCommand('play',undefined,true)){
+   movieLocalStatus('Play command sent. Waiting for player confirmation.');
+   setTimeout(()=>{
+    if(currentToken!==movieLocalCommandToken||movieLocalPaused)return;
+    if(movieFrameLastPlaying===true)return;
+    movieLocalReload(at);
+   },2600);
+   if(movieIsHost())movieSendControl('play',at);
+   return;
+  }
+ }
+ ++movieLocalCommandToken;
+ if(movieLocalReload(at)&&movieIsHost())movieSendControl('play',at);
+}
+function movieLocalPause(){
+ if(!websiteSelectedUrl||websiteStoppedFor===websiteSelectedUrl||movieLocalPaused)return;
+ const at=movieLocalCurrentTime();
+ ++movieLocalCommandToken;
+ movieLocalPaused=true;movieLocalPausedAt=at;
+ // Unloading stops video and audio even if this provider does not support
+ // postMessage. This is a hard pause, not native HTMLMediaElement.pause().
+ unloadWebsiteFrame();
+ movieLocalStatus('Paused near '+moviePositionText(at)+'. Resume reloads the player.');
+ setWebsiteClickGuard();
+ if(movieIsHost())movieSendControl('pause',at);
+}
+function movieLocalSkip(delta){
  if(!websiteSelectedUrl||websiteStoppedFor===websiteSelectedUrl)return;
- const unlock=!websiteControlsUnlocked;
- setWebsiteClickGuard(unlock);
- if(unlock)toast('Controls unlocked for 12 seconds. Third-party clicks may open tabs.');
+ const at=Math.max(0,Math.min(86400,Math.floor(movieLocalCurrentTime()+delta)));
+ ++movieLocalCommandToken;
+ if(movieLocalPaused){
+  movieLocalPausedAt=at;
+  movieLocalStatus('Paused near '+moviePositionText(at)+'. Resume to play from here.');
+  setWebsiteClickGuard();
+ }else if(movieFrameEventsSeen&&moviePostCommand('seek',at)){
+  movieLocalStatus('Seek requested near '+moviePositionText(at)+'. Waiting for confirmation.');
+  const currentToken=movieLocalCommandToken;
+  setTimeout(()=>{
+   if(currentToken!==movieLocalCommandToken||movieLocalPaused||
+      !websiteSelectedUrl||websiteStoppedFor===websiteSelectedUrl)return;
+   if(movieFrameLastProgress!==null&&Math.abs(movieFrameLastProgress-at)<5)return;
+   movieLocalReload(at);
+  },2600);
+ }else movieLocalReload(at);
+ if(movieIsHost())movieSendControl('seek',at);
 }
-$('websiteInteractionToggle').onclick=toggleWebsiteControls;
-$('websiteUnlock').onclick=event=>{event.stopPropagation();toggleWebsiteControls()};
-$('websiteClickShield').onclick=()=>toast('Protected view is on. Use controls to interact with this external player.');
+$('movieLocalPlay').onclick=event=>{event.stopPropagation();movieLocalPlay()};
+$('movieLocalPause').onclick=event=>{event.stopPropagation();movieLocalPause()};
+$('movieLocalBack').onclick=event=>{event.stopPropagation();movieLocalSkip(-10)};
+$('movieLocalForward').onclick=event=>{event.stopPropagation();movieLocalSkip(10)};
+$('websiteClickShield').onclick=()=>toast('Movie taps are locked. Use Togetherly playback controls below.');
 
 let websiteSelectedVersion=null,movieSnapshot=null,movieSnapshotAt=0;
 let movieFrameEventsSeen=false,movieFrameLastProgress=null,movieFrameLastProgressAt=0;
@@ -837,8 +915,8 @@ function movieSendControl(action,position,playing,then){
   if(typeof then==='function')then();
  });
 }
-function moviePostCommand(command,time){
- if(!movieFrameEventsSeen||!websiteSelectedUrl||!verifiedCatalogPlayer(lastState))return false;
+function moviePostCommand(command,time,allowBeforeEvents=false){
+ if((!movieFrameEventsSeen&&!allowBeforeEvents)||!websiteSelectedUrl||!verifiedCatalogPlayer(lastState))return false;
  const target=$('websiteFrame').contentWindow;
  if(!target)return false;
  try{
@@ -851,6 +929,7 @@ function movieCatchupNow(){
  const pos=movieClockNow();
  if(pos===null)return toast('Waiting for the room timeline');
  websiteStoppedFor=null;
+ movieLocalPaused=false;++movieLocalCommandToken;
  loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:pos,playing:movieSnapshot?.playing}),true);
  websiteSelectedVersion=lastState.version;
  updateWebsitePlayerActions(websiteSelectedUrl);
@@ -888,7 +967,8 @@ function movieCorrectGuestDrift(){
  }
 }
 window.addEventListener('message',event=>{
- if(event.origin!==MOVIE_PLAYER_ORIGIN||!websiteSelectedUrl||
+ if(event.origin!==MOVIE_PLAYER_ORIGIN||!websiteSelectedUrl||movieLocalPaused||
+  !$('websiteFrame').hasAttribute('src')||
   event.source!==$('websiteFrame').contentWindow||!verifiedCatalogPlayer(lastState))return;
  const data=event.data;
  if(!data||typeof data!=='object'||Array.isArray(data)||data.type!=='PLAYER_EVENT')return;
@@ -904,6 +984,8 @@ window.addEventListener('message',event=>{
   ['play','playing','timeupdate','seeked'].includes(eventType)?true:false;
  movieFrameEventsSeen=true;
  movieFrameLastProgress=position;movieFrameLastProgressAt=Date.now();movieFrameLastPlaying=playing;
+ if(!movieLocalPaused&&$('websiteFrame').hasAttribute('src'))
+  movieLocalStatus((playing?'Playing':'Paused')+' confirmed near '+moviePositionText(position)+'.');
  if(movieIsHost()&&Date.now()-movieLastReportedAt>=1550){
   movieLastReportedAt=Date.now();movieSendControl('sample',position,playing);
  }else movieCorrectGuestDrift();
@@ -936,7 +1018,7 @@ function unloadWebsiteFrame(){
  const frame=$('websiteFrame');
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
- setWebsiteClickGuard(false);
+ setWebsiteClickGuard();
  setWebsiteExitGuard(false);
 }
 function loadWebsiteFrame(url,compatibilityMode=false){
@@ -952,8 +1034,13 @@ function loadWebsiteFrame(url,compatibilityMode=false){
  frame.removeAttribute('allowfullscreen');
  frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
  setWebsiteExitGuard(compatibilityMode);
+ const pos=Number(new URL(url).searchParams.get('startAt')||0);
+ movieLocalExpectedStart=Number.isFinite(pos)?Math.max(0,Math.min(86400,pos)):0;
+ movieLocalStartAt=Date.now();
+ movieLocalPaused=false;
  frame.setAttribute('src',url);
- setWebsiteClickGuard(false);
+ movieLocalStatus('Playback requested near '+moviePositionText(movieLocalExpectedStart)+'. Player status unverified.');
+ setWebsiteClickGuard();
 }
 function updateWebsitePlayerActions(url){
  const stopped=Boolean(url&&websiteStoppedFor===url);
@@ -973,14 +1060,15 @@ function setWebsitePlayer(s){
   const url=target.toString();
   if(websiteSelectedUrl!==url||websiteSelectedVersion!==s.version){
    websiteSelectedUrl=url;websiteSelectedVersion=s.version;
-   websiteStoppedFor=null;
+   websiteStoppedFor=null;movieLocalPaused=false;++movieLocalCommandToken;
    loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true);
-  }else if(websiteStoppedFor!==url&&!frame.hasAttribute('src')){
+  }else if(websiteStoppedFor!==url&&!movieLocalPaused&&!frame.hasAttribute('src')){
    loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true);
   }
   updateWebsitePlayerActions(url);
  }else{
   websiteSelectedUrl=null;websiteStoppedFor=null;websiteSelectedVersion=null;
+  movieLocalPaused=false;++movieLocalCommandToken;
   movieFrameEventsSeen=false;movieFrameLastProgress=null;
   unloadWebsiteFrame();updateWebsitePlayerActions(null);
  }
@@ -989,6 +1077,7 @@ function setWebsitePlayer(s){
 $('websiteStop').onclick=()=>{
  if(!websiteSelectedUrl)return;
  websiteStoppedFor=websiteSelectedUrl;
+ movieLocalPaused=false;++movieLocalCommandToken;
  unloadWebsiteFrame();
  updateWebsitePlayerActions(websiteSelectedUrl);
  toast('Player stopped on this device.');
@@ -996,6 +1085,7 @@ $('websiteStop').onclick=()=>{
 $('websiteResume').onclick=()=>{
  if(!websiteSelectedUrl||websiteStoppedFor!==websiteSelectedUrl)return;
  websiteStoppedFor=null;
+ movieLocalPaused=false;++movieLocalCommandToken;
  loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}),verifiedCatalogPlayer(lastState));
  updateWebsitePlayerActions(websiteSelectedUrl);
 };
