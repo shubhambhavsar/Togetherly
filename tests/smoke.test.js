@@ -304,85 +304,24 @@ test('room capacity is eight participants without a global room count limit',asy
  assert.ok(!backend.includes('const MAX_ROOMS'),'No global room cap is configured');
 });
 
-test('shared HTTPS website source is validated, broadcast, and switched back to YouTube',async()=>{
- let connect;const outbound=[];
- class FakeIO{on(event,fn){if(event==='connection')connect=fn}to(roomId){return{emit:(event,data)=>outbound.push({roomId,event,data})}}}
- const express=()=>({disable(){},use(){},get(){}});express.static=()=>()=>{};
- const fakeRequire=id=>id==='express'?express:id==='http'?{createServer:()=>({listen(){}})}:
-  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'c'.repeat(n*2)})}:
-  id==='path'?{join:(...p)=>p.join('/')}:require(id);
- vm.runInNewContext(backend,{require:fakeRequire,URL:require('node:url').URL,process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
- function client(id){
-  const handlers={},socket={id,data:{},on:(event,fn)=>handlers[event]=fn,join(){},leave(){},
-   to:()=>({emit:(event,data)=>outbound.push({roomId:'other',event,data})}),
-   emit:(event,data)=>outbound.push({roomId:id,event,data})};
-  connect(socket);
-  return {ask:(event,data)=>new Promise(resolve=>handlers[event](data,resolve)),fire:(event,data)=>handlers[event](data)};
- }
- const a=client('owner'),b=client('guest');
- assert.match((await a.ask('website',{url:'https://flex.movie'})).error,/Join the room first/);
- const room=await a.ask('create',{name:'Owner'});
- assert.equal(room.state.source,'youtube');
- await b.ask('join',{id:room.id,name:'Guest'});
- for(const invalid of [
-   'javascript:alert(1)','http://flex.movie','https://localhost/video',
-   'https://127.0.0.1/movie','https://10.0.0.2/movie',
-   'https://internal.local','https://everydaygrove.ca/room/foo',
-   'https://user:secret@flex.movie/private',
-   'https://flex.movie/video?access_token=secret',
-   'https://flex.movie:444/video'
-  ]){
-   const reply=await a.ask('website',{url:invalid});
-   assert.match(reply.error,/public HTTPS website/i,'Unsafe URL accepted: '+invalid);
- }
- const preview=await a.ask('website',{url:'https://flex.movie/'});
- assert.equal(preview.ok,true);
- const last=outbound.filter(x=>x.event==='state').pop().data;
- assert.equal(last.source,'website');
- assert.equal(last.websiteUrl,'https://flex.movie/');
- assert.equal(last.playing,false);
- b.fire('sync');
- assert.equal(outbound.at(-1).data.source,'website','Late joiners should see shared website state');
- const youtube=await a.ask('video',{url:'https://youtu.be/M7lc1UVf-VE'});
- assert.equal(youtube.ok,true);
- const current=outbound.filter(x=>x.event==='state').pop().data;
- assert.equal(current.source,'youtube');
- assert.equal(current.websiteUrl,'');
- assert.ok(backend.includes("r.source==='website'"),'Website mode must disable YouTube playback synchronization');
-});
-test('owner-authorized website timeline and automatic leader transfer',async()=>{
- let connected;const sent=[];
- class FakeIO{on(event,fn){if(event==='connection')connected=fn}to(id){return{emit:(event,data)=>sent.push({id,event,data})}}}
+test('legacy arbitrary website sharing is disabled',async()=>{
+ let connect;
+ class FakeIO{on(event,fn){if(event==='connection')connect=fn}to(){return{emit(){}}}}
  const exp=()=>({disable(){},use(){},get(){}});exp.static=()=>()=>{};
  const fakeRequire=id=>id==='express'?exp:id==='http'?{createServer:()=>({listen(){}})}:
- id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'd'.repeat(n*2)})}:
- id==='path'?{join:(...p)=>p.join('/')}:require(id);
- vm.runInNewContext(backend,{require:fakeRequire,URL:require('node:url').URL,process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
- function client(id){
-  const handlers={},s={id,data:{},on:(e,fn)=>handlers[e]=fn,join(){},leave(){},
-   to:()=>({emit:(e,d)=>sent.push({id:'other',event:e,data:d})}),
-   emit:(e,d)=>sent.push({id,event:e,data:d})};
-  connected(s);return{ask:(e,d)=>new Promise(resolve=>handlers[e](d,resolve)),fire:e=>handlers[e]()};
- }
- const host=client('host'),guest=client('guest');
- const created=await host.ask('create',{name:'Host'});
- assert.equal(created.state.websiteLeader,'host');
- await guest.ask('join',{id:created.id,name:'Guest'});
- assert.match((await host.ask('website:sample',{version:0,position:45,playing:true})).error,/No supported/);
- await host.ask('website',{url:'https://flexflix.site/movie'});
- const ver=sent.filter(e=>e.event==='state').at(-1).data.version;
- assert.match((await guest.ask('website:sample',{version:ver,position:45,playing:true})).error,/Only the room owner/);
- assert.match((await host.ask('website:sample',{version:ver,position:-1,playing:true})).error,/Invalid playback/);
- assert.equal((await host.ask('website:sample',{version:ver,position:80,playing:true})).ok,true);
- const latest=sent.filter(e=>e.event==='website:timeline').at(-1).data.timeline;
- assert.ok(latest.position>=80&&latest.playing);
- guest.fire('sync');
- assert.equal(sent.filter(e=>e.id==='guest'&&e.event==='state').at(-1).data.websiteLeader,'host');
- host.fire('disconnect');
- assert.equal(sent.filter(e=>e.event==='state').at(-1).data.websiteLeader,'guest');
- assert.equal((await guest.ask('website:sample',{version:ver,position:88,playing:false})).ok,true);
- await guest.ask('video',{url:'https://youtu.be/M7lc1UVf-VE'});
- assert.match((await guest.ask('website:sample',{version:ver+1,position:2,playing:false})).error,/No supported/);
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'c'.repeat(n*2)})}:
+  id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ vm.runInNewContext(backend,{require:fakeRequire,URL:require('node:url').URL,
+  process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})},{filename:'server.js'});
+ const handlers={},sock={id:'owner',data:{},on:(event,fn)=>handlers[event]=fn,
+  join(){},leave(){},to:()=>({emit(){}}),emit(){}};
+ connect(sock);
+ const reply=await new Promise(resolve=>handlers.website({url:'https://untrusted.example/movie'},resolve));
+ assert.match(reply.error,/disabled for safety/i);
+ const created=await new Promise(resolve=>handlers.create({name:'Host'},resolve));
+ assert.equal(created.state.source,'youtube');
+ const blocked=await new Promise(resolve=>handlers.website({url:'https://vsembed.su/embed/movie/550'},resolve));
+ assert.match(blocked.error,/disabled for safety/i);
 });
 test('catalog movie and TV adapters share exact validated third-party embed URLs',async()=>{
  let connect;const sent=[];
@@ -401,7 +340,7 @@ test('catalog movie and TV adapters share exact validated third-party embed URLs
   return{ask:(e,d)=>new Promise(resolve=>handlers[e](d,resolve)),fire:e=>handlers[e]()};
  }
  const host=client('host'),guest=client('guest');
- assert.match((await host.ask('catalog:play',{provider:'vidsrc',type:'movie',id:550})).error,/Join a room/);
+ assert.match((await host.ask('catalog:play',{provider:'vidfast',type:'movie',id:550})).error,/Join a room/);
  const created=await host.ask('create',{name:'Host'});
  await guest.ask('join',{id:created.id,name:'Guest'});
  for(const value of [
@@ -413,19 +352,18 @@ test('catalog movie and TV adapters share exact validated third-party embed URLs
   {provider:'__proto__',type:'movie',id:550},
   {provider:'vidlove',type:'tv',id:1399,season:100,episode:1}
  ])assert.match((await host.ask('catalog:play',value)).error,/supported provider/i);
- const movie=await host.ask('catalog:play',{provider:'vidsrc',type:'movie',id:550,title:'Fight Club'});
- assert.equal(movie.url,'https://vsembed.su/embed/movie/550');
+ const movie=await host.ask('catalog:play',{provider:'vidfast',type:'movie',id:550,title:'Fight Club'});
+ assert.equal(movie.url,'https://vidfast.vc/movie/550');
  assert.equal(sent.filter(x=>x.event==='state').at(-1).data.catalog.title,'Fight Club');
  guest.fire('sync');
- assert.equal(sent.filter(x=>x.id==='guest'&&x.event==='state').at(-1).data.catalog.provider,'vidsrc');
+ assert.equal(sent.filter(x=>x.id==='guest'&&x.event==='state').at(-1).data.catalog.provider,'vidfast');
  const tv=await guest.ask('catalog:play',{provider:'vidfast',type:'tv',id:1399,season:2,episode:3,title:'Series'});
  assert.equal(tv.url,'https://vidfast.vc/tv/1399/2/3');
  const state=sent.filter(x=>x.event==='state').at(-1).data;
  assert.equal(state.catalog.type,'tv');assert.equal(state.catalog.season,2);assert.equal(state.catalog.episode,3);
- const vidlove=await host.ask('catalog:play',{provider:'vidlove',type:'movie',id:550});
- assert.equal(vidlove.url,'https://player.vidlove.cc/embed/movie/550');
- await host.ask('website',{url:'https://example.org/'});
- assert.equal(sent.filter(x=>x.event==='state').at(-1).data.catalog,null);
+ assert.match((await host.ask('catalog:play',{provider:'vidlove',type:'movie',id:550})).error,/supported provider/i);
+ assert.match((await host.ask('website',{url:'https://example.org/'})).error,/disabled for safety/i);
+ assert.equal(sent.filter(x=>x.event==='state').at(-1).data.catalog.type,'tv');
  await host.ask('catalog:play',{provider:'vidfast',type:'movie',id:42});
  await host.ask('video',{url:'https://youtu.be/M7lc1UVf-VE'});
  assert.equal(sent.filter(x=>x.event==='state').at(-1).data.catalog,null);
@@ -474,7 +412,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=20')&&html.includes('/website-player.css?v=8'));
+ assert.ok(html.includes('/app.js?v=21')&&html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -542,7 +480,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=20'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=21'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -550,14 +488,21 @@ test('the simplified room switches between movie search and YouTube',()=>{
  assert.ok(html.includes('id="tabMovies"')&&html.includes('id="tabYouTube"'));
  assert.ok(html.includes('id="movieSourcePanel"')&&html.includes('id="youtubeSourcePanel"'));
  assert.ok(html.includes('id="websiteFrame"')&&html.includes('id="websiteStop"'));
+ assert.ok(!html.includes('website-player-warning'),'The old video overlay band must be absent');
+ assert.ok(html.includes('class="toolbar-actions"'),'Player exit action stays outside the video');
  assert.ok(!html.includes('id="websiteForm"')&&!html.includes('id="websiteSyncPanel"'));
  assert.ok(!html.includes('id="websiteCompatibility"')&&!html.includes('Try compatibility mode'));
  assert.ok(html.includes('/watch-redesign.css?v=1'));
  assert.ok(frontend.includes("setSourceTab('movies')")&&frontend.includes("setSourceTab('youtube')"));
 });
-test('automatic sandbox-free embed mode is restricted to server-defined catalogue sources',()=>{
+test('movie embeds are restricted to the remaining exact-match source and no overlay',()=>{
  assert.ok(frontend.includes("const CATALOG_ALLOWED_PLAYERS=Object.freeze"));
- for(const host of ['vsembed.su','vidfast.vc','player.vidlove.cc'])assert.ok(frontend.includes(host));
+ assert.ok(frontend.includes('vidfast.vc'));
+ for(const host of ['vsembed.su','player.vidlove.cc']){
+  assert.ok(!frontend.includes(host),'Flagged host still allowed in frontend: '+host);
+  assert.ok(!backend.includes(host),'Flagged host still allowed in backend: '+host);
+ }
+ assert.ok(html.includes('id="catalogProvider" type="hidden" value="vidfast"'));
  assert.ok(frontend.includes("return s.websiteUrl===expected"));
  assert.ok(frontend.includes("if(unrestricted)frame.removeAttribute('sandbox')"));
  assert.ok(frontend.includes("else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
@@ -566,4 +511,12 @@ test('automatic sandbox-free embed mode is restricted to server-defined catalogu
  assert.ok(frontend.includes('websiteLastUnrestricted!==trusted'));
  assert.ok(frontend.includes("unloadWebsiteFrame()"));
  assert.ok(!frontend.includes("window.confirm(message)"));
+});
+
+test('unverified sources are not called safe and no antivirus bypass is attempted',()=>{
+ assert.ok(html.includes('If your antivirus flags its site or redirects'));
+ assert.ok(!html.includes('option value="vidsrc"')&&!html.includes('option value="vidlove"'));
+ assert.ok(!html.includes('id="openWebsite"'));
+ assert.ok(!frontend.includes("window.confirm(message)"));
+ assert.ok(!backend.includes('https://vsembed.su')&&!backend.includes('player.vidlove.cc'));
 });
