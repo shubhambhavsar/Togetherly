@@ -265,3 +265,78 @@
  .catalog-play-options input,.catalog-play-options select{font-size:16px}
  .catalog-play-options button{width:100%}
 }
+
+/* Local interaction shield: interception happens OUTSIDE the cross-origin
+   iframe. Clicking the protected video never forwards that click to the
+   third-party page. Temporary unlock cannot promise popup prevention. */
+#videoShell.website-mode .website-click-shield:not(.hidden){
+ position:absolute;inset:0;display:flex!important;
+ z-index:3;align-items:flex-end;justify-content:center;
+ padding:12px 10px 13px;
+ background:linear-gradient(to top,rgba(6,14,25,.52),transparent 36%);
+ cursor:default;pointer-events:auto;
+}
+#videoShell .website-click-shield.hidden{display:none!important}
+#videoShell .website-click-shield-message{
+ display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
+ gap:9px;padding:7px 8px 7px 12px;
+ width:fit-content;max-width:100%;
+ background:rgba(8,22,34,.94);border:1px solid rgba(190,213,227,.4);
+ border-radius:14px;color:#e5eff4;font-size:11px;font-weight:700;
+ letter-spacing:0;line-height:1.35;
+ box-shadow:0 8px 26px rgba(0,0,0,.3);
+}
+#videoShell .website-click-shield-badge{font-size:17px;color:#dbb987}
+#videoShell .website-click-shield-action{
+ display:inline-flex;align-items:center;justify-content:center;
+ min-width:108px;min-height:40px;padding:8px 12px;
+ border:1px solid rgba(230,187,128,.7);border-radius:9px;
+ background:#e8bd82;color:#1e2935;font-size:11px;font-weight:800;
+ cursor:pointer;
+}
+#videoShell .website-click-shield-action:focus-visible,
+#watch #websiteInteractionToggle:focus-visible{
+ outline:2px solid #f3cc90;outline-offset:3px
+}
+#watch #websiteInteractionToggle.hidden{display:none!important}
+#watch #websiteInteractionToggle[aria-pressed="true"]{
+ border-color:#e1be8a;color:#f1d3a6;background:#37414b;
+}
+@media(max-width:800px){
+ #videoShell.website-mode .website-click-shield:not(.hidden){
+  padding:7px 8px 8px;
+ }
+ #videoShell .website-click-shield-message{
+  gap:6px;font-size:10px;max-width:100%;
+  padding:5px 6px 5px 9px;border-radius:11px;
+ }
+ #videoShell .website-click-shield-action{
+  min-height:42px;min-width:104px;padding:6px 9px;font-size:10px;
+ }
+ #watch .player-toolbar .toolbar-actions #websiteInteractionToggle{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  height:40px!important;min-height:40px!important;
+  width:43px!important;min-width:43px!important;max-width:43px!important;
+  padding:0!important;border-radius:11px!important;
+  font-size:0!important;flex:0 0 43px!important;
+ }
+ #watch .player-toolbar .toolbar-actions #websiteInteractionToggle::before{
+  content:"◈";font-size:21px;line-height:1;
+ }
+ #watch .player-toolbar .toolbar-actions #websiteInteractionToggle.hidden{display:none!important}
+}
+@media(max-width:370px){
+ #watch .player-toolbar .toolbar-actions{gap:4px!important}
+ #watch .player-toolbar .toolbar-actions #websiteStop,
+ #watch .player-toolbar .toolbar-actions #websiteResume{
+  width:41px!important;min-width:41px!important;max-width:41px!important;
+  padding:0!important;font-size:0!important;justify-content:center!important;
+ }
+ #watch .player-toolbar .toolbar-actions #websiteStop::before{content:"✕";font-size:17px}
+ #watch .player-toolbar .toolbar-actions #websiteResume::before{content:"↻";font-size:20px}
+ #watch .player-toolbar .toolbar-actions #websiteStop.hidden,
+ #watch .player-toolbar .toolbar-actions #websiteResume.hidden{display:none!important}
+}
+@media(prefers-reduced-motion:reduce){
+ #videoShell .website-click-shield-action{transition:none}
+}
