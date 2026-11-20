@@ -516,7 +516,7 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
 });
 
 test('unverified sources are not called safe and no antivirus bypass is attempted',()=>{
- assert.ok(html.includes('If your antivirus flags its site or redirects'));
+ assert.ok(html.includes('Unverified player. Never bypass an antivirus warning.'));
  assert.ok(!html.includes('option value="vidsrc"')&&!html.includes('option value="vidlove"'));
  assert.ok(!html.includes('id="openWebsite"'));
  assert.ok(!frontend.includes("window.confirm(message)"));
@@ -639,6 +639,7 @@ test('movie-selection UI handles TV bounds, movie switch, changing title and sta
   $,document:{querySelectorAll:selector=>selector.includes('.catalog-tv-only')?tvFields:[]},
   room:'room1',toast:msg=>notices.push(msg),encodeURIComponent,
   Number,AbortController,clearTimeout,setTimeout,
+  mobileIsCompact:()=>false,mobileClosePanels:()=>{},
   socket:{timeout:()=>({emit:(name,details,cb)=>{
    shared.push({name,details});callbacks.set(shared.length,cb);
   }})},
