@@ -68,7 +68,12 @@ async function check(){
   assert.match(await host.locator('#camera').textContent(),/Turn camera on/);
   await host.locator('#camera').click();
 
-  const guest=await context.newPage();
+  // Separate browser storage from the host; real guests have independent nicknames.
+  const guestContext=await browser.newContext({
+   viewport:{width:390,height:844},permissions:['camera','microphone'],
+   isMobile:true,hasTouch:true
+  });
+  const guest=await guestContext.newPage();
   guest.on('pageerror',err=>unexpected.push('guest: '+err.message));
   await guest.goto(url,{waitUntil:'domcontentloaded'});
   await guest.locator('#name').fill('Guest');
