@@ -508,9 +508,11 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
  assert.ok(frontend.includes("return s.websiteUrl===expected"));
  assert.ok(frontend.includes("const WEBSITE_FRAME_SANDBOX='allow-scripts allow-same-origin allow-forms'"));
  assert.ok(frontend.includes("frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
- assert.ok(!frontend.includes("frame.removeAttribute('sandbox')"),'Movie iframe must stay sandboxed');
- assert.ok(!frontend.includes('websiteLastUnrestricted'),'No implicit compatibility exception');
- assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline))'));
+ assert.ok(frontend.includes("if(compatibilityMode)frame.removeAttribute('sandbox')"),
+  'Verified catalogue players should support unsandboxed compatibility');
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true)'));
+ assert.ok(frontend.includes("return s.websiteUrl===expected"),'Only exact source URLs can be used');
+ assert.ok(frontend.includes('setWebsiteExitGuard(compatibilityMode)'),'Enable best-effort exit protection');
  assert.ok(frontend.includes("unloadWebsiteFrame()"));
  assert.ok(!frontend.includes("window.confirm(message)"));
 });
@@ -1194,7 +1196,7 @@ test('WebRTC recovery never restarts a peer who has left the room',()=>{
  assert.ok(frontend.includes("callRole='camera';callActive=true;sharingCall=true;cameraNeedsRejoin=false"));
 });
 
-test('movie frame blocks popups and nested fullscreen while keeping Togetherly theater available',()=>{
+test('verified movie compatibility keeps child fullscreen disabled and restores sandbox on unload',()=>{
  const start=html.indexOf('<iframe id="websiteFrame"');
  const end=html.indexOf('</iframe>',start);
  assert.ok(start>0&&end>start,'Movie frame missing');
@@ -1204,7 +1206,10 @@ test('movie frame blocks popups and nested fullscreen while keeping Togetherly t
   'allowfullscreen','fullscreen;']){
   assert.ok(!iframe.includes(permission),'Unwanted frame permission: '+permission);
  }
- assert.ok(!frontend.includes("frame.removeAttribute('sandbox')"));
+ assert.ok(frontend.includes("if(compatibilityMode)frame.removeAttribute('sandbox')"));
+ assert.ok(frontend.includes("else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
+ assert.ok(frontend.includes("loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true)"));
+ assert.ok(frontend.includes("loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}),verifiedCatalogPlayer(lastState))"));
  assert.ok(frontend.includes("frame.removeAttribute('allowfullscreen')"));
  assert.ok(frontend.includes("frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture')"));
  assert.ok(backend.includes('fullscreen=(self)'));
@@ -1225,4 +1230,9 @@ test('landing alignment uses one centered mobile column without changing the wat
  assert.ok(css.includes('font-size:16px!important'),'Prevent Safari input focus zoom');
  assert.ok(css.includes('env(safe-area-inset-bottom)'),'Respect phone gesture area');
  assert.ok(!css.includes('#watch'),'Landing alignment must not modify movie/camera screens');
+ assert.ok(css.includes('#landing.landing[hidden]{display:none!important}'),'Room transition must hide landing');
+ assert.ok(css.includes('    display:grid;\n    grid-template-columns:'),
+  'Landing grid must not override inline display:none');
+ assert.ok(frontend.includes("$('landing').hidden=true;$('landing').style.display='none';$('watch').style.display='block'"),
+  'Joining a room must hide the landing section explicitly');
 });
