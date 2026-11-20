@@ -96,7 +96,7 @@ async function wikidataTitleSearch(q){
 }
 // Validate a requested TV season and episode against TMDB metadata when
 // configured. Episode counts are metadata, not proof a third-party player works.
-const tvSeasonCache=new Map(),tvDetailsRate=new Map();
+const tvSeasonCache=new Map(),tvDetailsRate=new Map(),tvSeasonPending=new Map();
 const tmdbCredentials=()=>({
  token:(process.env.TMDB_API_READ_TOKEN||'').trim(),
  key:(process.env.TMDB_API_KEY||'').trim()
@@ -107,23 +107,31 @@ async function catalogTvSeasons(id){
  if(cached&&cached.until>now)return cached.seasons;
  const {token,key}=tmdbCredentials();
  if(!token&&!key)return null;
- const url=new URL('https://api.themoviedb.org/3/tv/'+id);
- url.searchParams.set('language','en-US');
- if(!token)url.searchParams.set('api_key',key);
- const response=await fetch(url,{
-  headers:token?{Authorization:'Bearer '+token}:{},
-  signal:AbortSignal.timeout(6500)
- });
- if(!response.ok)throw Error('TV episode metadata unavailable');
- const body=await response.json();
- const seasons=(Array.isArray(body.seasons)?body.seasons:[])
-  .filter(x=>Number.isSafeInteger(x.season_number)&&x.season_number>=1&&x.season_number<=99&&
-    Number.isSafeInteger(x.episode_count)&&x.episode_count>=1&&x.episode_count<=999)
-  .map(x=>({season:x.season_number,episodes:x.episode_count}))
-  .sort((a,b)=>a.season-b.season);
- tvSeasonCache.set(id,{seasons,until:now+10*60*1000});
- if(tvSeasonCache.size>100)tvSeasonCache.delete(tvSeasonCache.keys().next().value);
- return seasons;
+ const alreadyPending=tvSeasonPending.get(id);
+ if(alreadyPending)return alreadyPending;
+ const request=(async()=>{
+  const url=new URL('https://api.themoviedb.org/3/tv/'+id);
+  url.searchParams.set('language','en-US');
+  if(!token)url.searchParams.set('api_key',key);
+  const response=await fetch(url,{
+   headers:token?{Authorization:'Bearer '+token}:{},
+   signal:AbortSignal.timeout(6500)
+  });
+  if(!response.ok)throw Error('TV episode metadata unavailable');
+  const body=await response.json();
+  const seasons=(Array.isArray(body.seasons)?body.seasons:[])
+   .filter(x=>Number.isSafeInteger(x.season_number)&&x.season_number>=1&&x.season_number<=99&&
+     Number.isSafeInteger(x.episode_count)&&x.episode_count>=1&&x.episode_count<=999)
+   .map(x=>({season:x.season_number,episodes:x.episode_count}))
+   .sort((a,b)=>a.season-b.season);
+  tvSeasonCache.set(id,{seasons,until:Date.now()+10*60*1000});
+  if(tvSeasonCache.size>100)tvSeasonCache.delete(tvSeasonCache.keys().next().value);
+  return seasons;
+ })();
+ tvSeasonPending.set(id,request);
+ try{return await request}
+ finally{tvSeasonPending.delete(id)}
+
 }
 app.get('/api/catalog/tv/:id/seasons',async(req,res)=>{
  res.set('Cache-Control','private, no-store');
@@ -378,6 +386,7 @@ s.on('catalog:play',async(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join a room before sharing a movie'});
  const choice=catalogPlayer(d);
  if(!choice)return ack?.({error:'Select a supported provider and valid TMDB movie or episode'});
+ const requestedVersion=r.version;
  // Reject nonexistent seasons/episodes when TMDB credentials are available.
  if(choice.type==='tv'){
   try{
@@ -393,6 +402,8 @@ s.on('catalog:play',async(d,ack)=>{
  }
  // The member might have disconnected while awaiting the metadata lookup.
  if(roomOf(s)!==r)return ack?.({error:'Room connection changed. Please try again.'});
+ if(r.version!==requestedVersion)
+  return ack?.({error:'Someone changed the room playback while the episode was being checked. Please try again.'});
  r.source='website';r.websiteUrl=choice.url;r.websiteTimeline=null;
  r.catalog={type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
    label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})};
