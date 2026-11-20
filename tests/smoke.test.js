@@ -412,7 +412,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=21')&&html.includes('/website-player.css?v=8'));
+ assert.ok(html.includes('/app.js?v=22')&&html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -480,7 +480,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=21'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=22'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -492,7 +492,7 @@ test('the simplified room switches between movie search and YouTube',()=>{
  assert.ok(html.includes('class="toolbar-actions"'),'Player exit action stays outside the video');
  assert.ok(!html.includes('id="websiteForm"')&&!html.includes('id="websiteSyncPanel"'));
  assert.ok(!html.includes('id="websiteCompatibility"')&&!html.includes('Try compatibility mode'));
- assert.ok(html.includes('/watch-redesign.css?v=2'));
+ assert.ok(html.includes('/watch-redesign.css?v=3'));
  assert.ok(frontend.includes("setSourceTab('movies')")&&frontend.includes("setSourceTab('youtube')"));
 });
 test('movie embeds are restricted to the remaining exact-match source and no overlay',()=>{
@@ -519,4 +519,179 @@ test('unverified sources are not called safe and no antivirus bypass is attempte
  assert.ok(!html.includes('id="openWebsite"'));
  assert.ok(!frontend.includes("window.confirm(message)"));
  assert.ok(!backend.includes('https://vsembed.su')&&!backend.includes('player.vidlove.cc'));
+});
+
+
+test('TV metadata endpoint and all movie/season/episode combinations are validated before room sharing',async()=>{
+ const routes={},events=[],fetched=[];
+ let connect;
+ class FakeIO{
+  on(n,fn){if(n==='connection')connect=fn}
+  to(id){return{emit:(event,data)=>events.push({id,event,data})}}
+ }
+ const app=()=>({disable(){},use(){},get:(route,fn)=>routes[route]=fn});
+ app.static=()=>()=>{};
+ const fakeRequire=id=>id==='express'?app:id==='http'?{createServer:()=>({listen(){}})}:
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'e'.repeat(n*2)})}:
+  id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ const context={
+  require:fakeRequire,URL:require('node:url').URL,
+  AbortSignal:{timeout:()=>({})},
+  process:{env:{PORT:'3000',TMDB_API_READ_TOKEN:'private-test-token'}},
+  __dirname:'/app',console,setInterval:()=>({unref(){}}),
+  fetch:async(url,options)=>{
+   const u=new URL(String(url));fetched.push({url:u,auth:options.headers.Authorization});
+   assert.equal(u.origin,'https://api.themoviedb.org');
+   assert.equal(u.pathname,'/3/tv/1399');
+   assert.equal(u.searchParams.has('api_key'),false,'Credentials must not be copied to URLs');
+   assert.equal(options.headers.Authorization,'Bearer private-test-token');
+   return{ok:true,json:async()=>({seasons:[
+    {season_number:0,episode_count:11},
+    {season_number:1,episode_count:7},
+    {season_number:2,episode_count:13},
+    {season_number:5,episode_count:16},
+    {season_number:99,episode_count:0}
+   ]})};
+  }
+ };
+ vm.runInNewContext(backend,context,{filename:'server.js'});
+ const response=()=>({code:200,body:null,set(){return this},status(n){this.code=n;return this},
+  json(body){this.body=body;return this}});
+ const api=async(id,ip='test-ip')=>{
+  const r=response();
+  await routes['/api/catalog/tv/:id/seasons']({params:{id},ip},r);return r;
+ };
+ for(const id of ['0','-1','bad','1399oops','01399'])assert.equal((await api(id)).code,400);
+ const details=await api('1399');
+ assert.equal(details.code,200);
+ assert.deepEqual(Array.from(details.body.seasons,x=>[x.season,x.episodes]),[[1,7],[2,13],[5,16]]);
+ assert.equal(JSON.stringify(details.body).includes('private-test-token'),false);
+ assert.equal((await api('1399')).code,200);
+ assert.equal(fetched.length,1,'Series details should be cached');
+
+ const client=id=>{
+  const handlers={},sock={id,data:{},on:(n,fn)=>handlers[n]=fn,join(){},leave(){},
+   emit:(event,data)=>events.push({id,event,data}),
+   to:()=>({emit:(event,data)=>events.push({id:'other',event,data})})};
+  connect(sock);
+  return{ask:(name,data)=>new Promise(resolve=>handlers[name](data,resolve)),
+   fire:name=>handlers[name]()};
+ };
+ const host=client('host'),guest=client('guest');
+ assert.match((await host.ask('catalog:play',{provider:'vidfast',type:'movie',id:1})).error,/Join a room/);
+ const created=await host.ask('create',{name:'Host'});
+ await guest.ask('join',{id:created.id,name:'Guest'});
+ for(const id of [1,2,550,603,999999999]){
+  const a=await host.ask('catalog:play',{provider:'vidfast',type:'movie',id,title:'Movie '+id});
+  assert.equal(a.url,'https://vidfast.vc/movie/'+id);
+ }
+ for(const id of [0,-1,1.5,1000000000,null,'not-a-number']){
+  const a=await host.ask('catalog:play',{provider:'vidfast',type:'movie',id});
+  assert.match(a.error,/valid TMDB/);
+ }
+ for(const [season,episode] of [[1,1],[1,7],[2,1],[2,13],[5,16]]){
+  const a=await host.ask('catalog:play',{provider:'vidfast',type:'tv',id:1399,season,episode,title:'Series'});
+  assert.equal(a.url,'https://vidfast.vc/tv/1399/'+season+'/'+episode);
+  guest.fire('sync');
+  const last=events.filter(x=>x.id==='guest'&&x.event==='state').at(-1).data;
+  assert.equal(last.catalog.season,season);
+  assert.equal(last.catalog.episode,episode);
+ }
+ for(const [season,episode] of [[1,8],[2,14],[5,17],[3,1],[99,999],[0,1],[1,0],[-1,1],[100,1]]){
+  const a=await host.ask('catalog:play',{provider:'vidfast',type:'tv',id:1399,season,episode});
+  assert.match(a.error,/(does not exist|valid TMDB)/);
+ }
+ for(const p of ['vidsrc','vidlove','unknown','__proto__']){
+  assert.match((await host.ask('catalog:play',{provider:p,type:'movie',id:550})).error,/supported provider/);
+ }
+ assert.equal(fetched.length,1,'Room changes and episode checks should reuse TV metadata');
+ const youtube=await guest.ask('video',{url:'https://youtu.be/M7lc1UVf-VE'});
+ assert.equal(youtube.ok,true);
+ guest.fire('sync');
+ assert.equal(events.filter(x=>x.id==='guest'&&x.event==='state').at(-1).data.catalog,null);
+ assert.match((await guest.ask('website',{url:'https://example.org/'})).error,/disabled for safety/);
+});
+
+test('movie-selection UI handles TV bounds, movie switch, changing title and stale replies',async()=>{
+ const begin=frontend.indexOf('let catalogChoice='),end=frontend.indexOf('let ytScriptStarted=false',begin);
+ assert.ok(begin>0&&end>begin,'Movie picker module should be isolatable');
+ const source=frontend.slice(begin,end);
+ const nodes=new Map(),callbacks=new Map(),shared=[],notices=[];
+ const makeNode=()=>{
+  const flags=new Set(['hidden']),listeners={};
+  return{
+   value:'',textContent:'',disabled:false,dataset:{},
+   classList:{add:k=>flags.add(k),remove:k=>flags.delete(k),
+    contains:k=>flags.has(k),toggle:(k,on)=>on?flags.add(k):flags.delete(k)},
+   addEventListener:(k,fn)=>listeners[k]=fn,
+   emitInput:k=>listeners[k]?.(),
+   setAttribute(){},focus(){},scrollIntoView(){},
+   get listeners(){return listeners}
+  };
+ };
+ const $=id=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id)};
+ $('catalogProvider').value='vidfast';
+ const tvFields=[makeNode(),makeNode()];
+ let resolveSeasons;
+ const context={
+  $,document:{querySelectorAll:selector=>selector.includes('.catalog-tv-only')?tvFields:[]},
+  room:'room1',toast:msg=>notices.push(msg),encodeURIComponent,
+  Number,AbortController,clearTimeout,setTimeout,
+  socket:{timeout:()=>({emit:(name,details,cb)=>{
+   shared.push({name,details});callbacks.set(shared.length,cb);
+  }})},
+  fetch:()=>new Promise(resolve=>{resolveSeasons=resolve})
+ };
+ vm.runInNewContext(source+'\nthis.testSelect=catalogSelectTitle;this.testClear=catalogClearSelection;',context);
+ context.testSelect({id:1399,type:'tv',title:'Breaking Bad',year:'2008'});
+ assert.equal($('catalogType').value,'tv');
+ assert.equal($('catalogPlay').disabled,true,'TV actions must wait for metadata');
+ resolveSeasons({ok:true,json:async()=>({seasons:[{season:1,episodes:7},{season:2,episodes:13}]})});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal($('catalogPlay').disabled,false);
+ $('catalogEpisode').value='8';
+ $('catalogEpisode').emitInput('input');
+ assert.equal($('catalogPlay').disabled,true,'Nonexistent episodes must be disabled');
+ $('catalogPlayForm').onsubmit({preventDefault(){}});
+ assert.equal(shared.length,0,'Invalid episode must not be sent');
+ $('catalogEpisode').value='7';
+ $('catalogEpisode').emitInput('input');
+ $('catalogPlayForm').onsubmit({preventDefault(){}});
+ assert.equal(shared.length,1);
+ assert.equal(shared[0].details.type,'tv');
+ assert.equal(shared[0].details.season,1);
+ assert.equal(shared[0].details.episode,7);
+ const previousCallback=callbacks.get(1);
+ // A user can select a new movie before the previous share response arrives.
+ context.testSelect({id:603,type:'movie',title:'The Matrix',year:'1999'});
+ assert.equal($('catalogType').value,'movie');
+ assert.equal($('catalogSeason').value,'1');
+ assert.equal($('catalogEpisode').value,'1');
+ assert.equal($('catalogEpisodeHelp').classList.contains('hidden'),true);
+ const before=$('catalogStatus').textContent;
+ previousCallback(null,{ok:true});
+ assert.equal($('catalogStatus').textContent,before,'Old ACK must not overwrite new selection');
+ $('catalogPlayForm').onsubmit({preventDefault(){}});
+ assert.equal(shared.length,2);
+ assert.equal(shared[1].details.type,'movie');
+ assert.equal(shared[1].details.id,603);
+ assert.equal(shared[1].details.provider,'vidfast');
+ callbacks.get(2)(null,{ok:true});
+ assert.match($('catalogStatus').textContent,/Shared with room/);
+ $('catalogChangeTitle').onclick();
+ assert.equal($('catalogPlayForm').classList.contains('hidden'),true);
+ assert.equal($('catalogId').value,'');
+});
+
+test('the new movie form spans the available width and distinguishes room playback from selected titles',()=>{
+ const css=fs.readFileSync(path.join(root,'public/watch-redesign.css'),'utf8');
+ assert.ok(css.includes('#watch .catalog-play-form{')&&css.includes('align-items:stretch'));
+ assert.ok(css.includes('#watch .catalog-play-options{')&&css.includes('width:100%'));
+ assert.ok(css.includes('#watch .catalog-now-playing{'));
+ assert.ok(html.includes('id="catalogNowPlaying" class="catalog-now-playing hidden"'));
+ assert.ok(html.includes('id="catalogEpisodeHelp"'));
+ assert.ok(frontend.includes('Currently shared in this room: '));
+ assert.ok(frontend.includes(' — not shared yet.'));
+ assert.ok(backend.includes("app.get('/api/catalog/tv/:id/seasons'"));
+ assert.ok(backend.includes('await catalogTvSeasons(choice.id)'));
 });
