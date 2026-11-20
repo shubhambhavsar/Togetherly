@@ -140,3 +140,35 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 - The implementation has source-level and simulated integration checks; **no live-browser test of FlexFlix playback compatibility has been completed**.
 
 **Do not merge or deploy this feature until the user explicitly says `deploy`.**
+
+
+## Proposed: Streambert-style movie and TV source picker (review-only)
+
+Togetherly now has an independently implemented **Movies & Series** prototype on the review branch. It follows the general pattern used in [Streambert's source configuration](https://github.com/truelockmc/streambert/blob/main/src/utils/api.js): discover a film/series ID, choose a third-party playback source, and generate that provider's embed URL. It does **not** copy Streambert's GPL application code.
+
+**User experience:** Join a room → search a title using TMDB metadata (or enter its TMDB ID) → choose movie/TV (season and episode if needed) → choose a provider → select **Play in room**. Togetherly validates the ID/provider on its own server, generates the iframe URL, then broadcasts it using its existing room state so every guest sees the same source player.
+
+### Metadata search setup
+
+Add **one** of the following environment variables to the Togetherly service on Render:
+
+- \`TMDB_API_READ_TOKEN\` — preferred TMDB API Read Access Token (Bearer authentication).
+- \`TMDB_API_KEY\` — alternate TMDB v3 API key.
+
+Never put credentials in \`public/\` or commit them to GitHub. The metadata search endpoint \`GET /api/catalog/search?q=...\` holds the credential server-side, validates input, caches responses briefly and applies a per-IP request limit. If TMDB credentials are missing, search shows a clear configuration error; manual ID entry remains usable. TMDB provides movie **metadata, not actual movies or streaming permissions**. Review the [TMDB API terms](https://developer.themoviedb.org/docs/faq), especially attribution/logo and commercial usage requirements, before public use.
+
+### Experimental third-party players
+
+The initial allowlist is **VidSrc, Vidfast, Vidlove**, with provider-specific movie and episode URL templates. The URLs are examples drawn from Streambert's documented source strategy and are not verified as working, safe, licensed, or appropriate for public screening. **Only use content you and your guests are authorized to watch.** Togetherly does not proxy or download streams, alter HTTP headers, capture media playlists or tokens, defeat DRM, or bypass \`X-Frame-Options\` / CSP protections. Each participant loads the iframe in their own browser, so embedding, autoplay, regional availability, and source video cuts may vary.
+
+This is **not synchronized movie playback**. Browser same-origin restrictions prevent Togetherly from controlling another provider's player through an ordinary iframe. The optional experimental FlexFlix-only browser companion remains separate and does not automatically apply to these other providers.
+
+### Release checklist
+
+1. Review the third-party provider terms and obtain permission for any public screening or integration.
+2. Add a TMDB credential to Render and confirm that the API/search UI works.
+3. Test the selected embed sources in actual Chrome, Firefox and mobile browsers, including fullscreen and source refusal.
+4. Confirm required TMDB attribution/logo and commercial licensing, if applicable.
+5. Keep the existing YouTube and manual Website Player as fallback; test room reconnection and provider changes.
+
+**The feature is on a review branch. Do not merge or deploy until the user explicitly requests \`deploy\`.**

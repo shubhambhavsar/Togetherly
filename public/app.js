@@ -296,6 +296,76 @@ $('suggestFlexflix').onclick=()=>{
  $('websiteURL').focus();
  notice('Third-party website selected. Review the address and choose Show website to share it.');
 };
+// Streambert-inspired movie catalogue. TMDB supplies metadata only; sources are
+// provider-controlled embedded sites, not direct playable video under our control.
+let catalogChoice=null;
+function catalogEpisodeFields(){
+ const tv=$('catalogType').value==='tv';
+ document.querySelectorAll('#movieCatalog .catalog-tv-only').forEach(n=>n.classList.toggle('hidden',!tv));
+}
+$('catalogType').onchange=()=>{catalogChoice=null;catalogEpisodeFields()};
+$('catalogId').oninput=()=>{catalogChoice=null};
+catalogEpisodeFields();
+$('catalogSearchForm').onsubmit=async event=>{
+ event.preventDefault();
+ const q=$('catalogQuery').value.trim(),out=$('catalogResults');
+ if(q.length<2)return;
+ out.replaceChildren();
+ $('catalogStatus').textContent='Looking up movie and series titles…';
+ try{
+  const response=await fetch('/api/catalog/search?q='+encodeURIComponent(q),{credentials:'same-origin'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||'Search failed');
+  const results=Array.isArray(data.results)?data.results:[];
+  $('catalogStatus').textContent=results.length
+   ?'Select a title, choose its source, and select Play in room.'
+   :'No matching titles found. You can also enter a TMDB ID.';
+  for(const item of results){
+   if(!Number.isSafeInteger(item.id)||!['movie','tv'].includes(item.type))continue;
+   const row=document.createElement('button');row.type='button';row.className='catalog-result';
+   const poster=document.createElement('span');poster.className='catalog-result-poster';
+   if(typeof item.poster==='string'&&item.poster.startsWith('https://image.tmdb.org/t/p/w92/')){
+    const img=document.createElement('img');img.src=item.poster;img.alt='';img.loading='lazy';poster.append(img);
+   }else poster.textContent='🎬';
+   const details=document.createElement('span');details.className='catalog-result-details';
+   const title=document.createElement('strong');title.textContent=item.title;
+   const subtitle=document.createElement('small');
+   subtitle.textContent=(item.type==='movie'?'Movie':'TV series')+(item.year?' · '+item.year:'');
+   details.append(title,subtitle);row.append(poster,details);
+   row.onclick=()=>{
+    $('catalogType').value=item.type;
+    $('catalogId').value=String(item.id);
+    catalogChoice={id:item.id,type:item.type,title:item.title};
+    catalogEpisodeFields();
+    $('catalogStatus').textContent='Selected '+item.title+'. Choose a source'+
+      (item.type==='tv'?', season and episode':'')+' and select Play in room.';
+   };
+   out.append(row);
+  }
+ }catch(error){$('catalogStatus').textContent=error.message||'Movie lookup failed'}
+};
+$('catalogPlayForm').onsubmit=event=>{
+ event.preventDefault();
+ if(!room)return toast('Join a room before sharing a movie');
+ const type=$('catalogType').value,id=Number($('catalogId').value);
+ const season=Number($('catalogSeason').value),episode=Number($('catalogEpisode').value);
+ if(!Number.isSafeInteger(id)||id<1||id>999999999)return toast('Enter a valid TMDB ID');
+ if(type==='tv'&&(!Number.isSafeInteger(season)||season<1||season>99||
+  !Number.isSafeInteger(episode)||episode<1||episode>999))return toast('Enter a valid season and episode');
+ const button=$('catalogPlay');
+ button.disabled=true;
+ const title=catalogChoice?.id===id&&catalogChoice?.type===type?catalogChoice.title:'';
+ socket.timeout(9000).emit('catalog:play',{
+  type,id,season,episode,provider:$('catalogProvider').value,title
+ },(error,ack)=>{
+  button.disabled=false;
+  if(error||ack?.error){
+   $('catalogStatus').textContent=ack?.error||'Could not load this source';
+   return
+  }
+  $('catalogStatus').textContent='Source shared. If embedding is blocked, use the player compatibility option. Everyone loads the page independently.';
+ });
+};
 $('websiteForm').onsubmit=event=>{
  event.preventDefault();
  if(!room)return toast('Join a room first');
@@ -573,6 +643,10 @@ function applyState(s){
  if(!s)return;
  const old=lastState;
  lastState=s;version=s.version;
+ $('catalogNowPlaying').textContent=s.catalog
+  ?'Shared: '+s.catalog.title+' · '+s.catalog.label+
+   (s.catalog.type==='tv'?' · S'+s.catalog.season+' E'+s.catalog.episode:'')
+  :'';
  const nextSyncUrl=s.source==='website'&&supportsWebsiteSync(s.websiteUrl)?s.websiteUrl:'';
  if(websiteSyncUrl!==nextSyncUrl){
   if(websiteSyncActive)websiteSyncDisable();
