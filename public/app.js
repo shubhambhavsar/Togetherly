@@ -507,7 +507,7 @@ const CATALOG_ALLOWED_PLAYERS=Object.freeze({
  vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e},
  vidlove:{movie:id=>'https://player.vidlove.cc/embed/movie/'+id,tv:(id,s,e)=>'https://player.vidlove.cc/embed/tv/'+id+'/'+s+'/'+e}
 });
-let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false;
+let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false,websiteLastUnrestricted=false;
 function verifiedCatalogPlayer(s){
  const c=s?.catalog,p=CATALOG_ALLOWED_PLAYERS[c?.provider];
  if(!p||!['movie','tv'].includes(c.type))return false;
@@ -560,15 +560,17 @@ function setWebsitePlayer(s){
   const url=target.toString();
   $('websiteHost').textContent=s.catalog?.title||target.hostname;
   $('openWebsite').href=url;
+  const trusted=verifiedCatalogPlayer(s);
   if(websiteSelectedUrl!==url){
-   websiteSelectedUrl=url;websiteStoppedFor=null;
-   loadWebsiteFrame(url,verifiedCatalogPlayer(s));
-  }else if(websiteStoppedFor!==url&&!frame.hasAttribute('src')){
-   loadWebsiteFrame(url,verifiedCatalogPlayer(s));
+   websiteSelectedUrl=url;websiteStoppedFor=null;websiteLastUnrestricted=trusted;
+   loadWebsiteFrame(url,trusted);
+  }else if(websiteStoppedFor!==url&&(websiteLastUnrestricted!==trusted||!frame.hasAttribute('src'))){
+   websiteLastUnrestricted=trusted;
+   loadWebsiteFrame(url,trusted);
   }
   updateWebsitePlayerActions(url);
  }else{
-  websiteSelectedUrl=null;websiteStoppedFor=null;
+  websiteSelectedUrl=null;websiteStoppedFor=null;websiteLastUnrestricted=false;
   unloadWebsiteFrame();updateWebsitePlayerActions(null);
  }
  return external;
