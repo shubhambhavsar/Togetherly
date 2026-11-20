@@ -143,6 +143,45 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 
 
 
+## Movie room clock + quieter fullscreen (2026-11-20)
+
+Room movie sharing now carries a versioned **estimated timeline** alongside the
+selected VidFast URL. New room members get a server-computed room position,
+and the embed is opened with VidFast's documented `startAt` parameter
+(`autoPlay=true` when the room clock is running). The iframe is **not** reloaded
+on routine Socket.IO state updates, so chat/cameras and ordinary playback keep
+working. The button **Join at room time** offers an explicit refresh for viewers
+who join late or drift away.
+
+When the host shares a movie, the approximate clock begins immediately.
+The host can anchor it with **I'm playing now**, pause the room clock,
+or enter a position such as `12:34` using **Set room time**. Only the current
+room host can modify the shared clock; the server checks version, membership,
+position bounds, and rate limits, and transfers host controls when the owner
+leaves. YouTube remains on its existing independent automatic sync path.
+
+Optional advanced behavior: if the exact, allowlisted VidFast frame actually
+emits a valid `PLAYER_EVENT` via `postMessage`, the host may submit verified
+progress samples, and guests with observable playback may try infrequent
+`seek`/play/pause commands. The browser validates **both the sender origin and
+the active iframe window**, checks the video identity if reported, and bounds
+positions before acting. **These events and commands are not guaranteed by
+VidFast's official public embed documentation** and may be unavailable.
+A player that supplies no events stays on the estimated room clock and
+one-click manual catch-up.
+
+Limitations: `startAt` may be ignored by a particular provider backend or
+overridden by saved playback progress, autoplay policies, ads, loading, or
+buffering. Playback cannot be guaranteed synchronized exactly across browsers.
+Movie content remains on a third-party unverified source. Never override
+antivirus or phishing warnings; no video proxying, download, or circumvention
+of playback restrictions is implemented.
+
+Fullscreen Exit has moved to a compact 44x44 touch-target icon in the **upper
+left** of the theater, away from camera tiles. The centered bottom dock is
+overridden by the last stylesheet. Keyboard focus, Escape and browser-native
+fullscreen exits remain available.
+
 ## Phishing warning mitigation / slimmer controls (review only)
 
 The movie page no longer shows a wide Stop Player band on top of the embedded

@@ -102,3 +102,66 @@
  #watch .catalog-play-options button{width:100%;margin:4px 0 0}
  #watch .catalog-selection{align-items:flex-start}
 }
+
+/* The movie clock is below the player, never over the video itself. */
+#watch .movie-room-sync{
+ width:100%;box-sizing:border-box;display:flex;flex-direction:column;
+ gap:11px;margin:12px 0 10px;padding:13px 15px;
+ background:linear-gradient(120deg,rgba(20,45,63,.98),rgba(13,30,46,.95));
+ border:1px solid #425f73;border-radius:11px;
+}
+#watch .movie-room-sync.hidden{display:none!important}
+#watch .movie-room-sync-header{display:flex;justify-content:space-between;align-items:center;gap:13px}
+#watch .movie-room-sync-header>div{min-width:0;display:flex;flex-direction:column;gap:4px}
+#watch .movie-room-sync-header .eyebrow{font-size:9px;letter-spacing:.12em;color:#d5b68c}
+#watch #movieSyncStatus{font-size:13px;color:#eff5f6;font-weight:650}
+#watch .movie-host-controls{display:flex;flex-wrap:wrap;align-items:end;gap:8px}
+#watch .movie-host-controls.hidden{display:none!important}
+#watch .movie-host-controls button{min-height:35px}
+#watch .movie-time-label{display:flex;flex-direction:column;gap:5px;color:#b4c8d5;font-size:11px}
+#watch #movieTimeInput{box-sizing:border-box;width:96px;padding:8px 9px;min-height:35px;
+ color:#f4f1eb;background:#0b1b2a;border:1px solid #607b8d;border-radius:7px;font-size:13px}
+#watch .movie-sync-hint{font-size:11px;color:#afc1ce;line-height:1.5;margin:0}
+#watch .movie-host-controls button:disabled{opacity:.4;cursor:not-allowed}
+@media(max-width:650px){
+ #watch .movie-room-sync{padding:12px 10px}
+ #watch .movie-room-sync-header{flex-wrap:wrap}
+ #watch .movie-room-sync-header #movieCatchup{width:100%}
+ #watch .movie-host-controls button{flex:1 1 auto}
+}
+
+/* Unobtrusive fullscreen exit: top-left, away from camera tiles at top-right. */
+#watch #videoShell.theater-mode .theater-dock{
+ display:flex!important;position:absolute!important;
+ top:max(12px,env(safe-area-inset-top))!important;
+ left:max(12px,env(safe-area-inset-left))!important;
+ bottom:auto!important;right:auto!important;
+ transform:none!important;
+ flex-direction:row!important;align-items:center!important;justify-content:center!important;
+ width:48px!important;min-width:48px!important;max-width:48px!important;
+ height:48px!important;max-height:48px!important;
+ padding:2px!important;margin:0!important;gap:0!important;
+ border:1px solid rgba(200,219,232,.25)!important;border-radius:13px!important;
+ background:rgba(8,22,33,.5)!important;box-shadow:none!important;
+ opacity:.62;transition:opacity .2s ease,background .2s ease;
+ z-index:75!important;
+}
+#watch #videoShell.theater-mode #fullscreenToggle{
+ display:inline-flex!important;position:static!important;
+ width:44px!important;min-width:44px!important;max-width:44px!important;
+ height:44px!important;min-height:44px!important;max-height:44px!important;
+ padding:0!important;margin:0!important;flex:0 0 44px!important;
+ background:transparent!important;border:0!important;border-radius:11px!important;
+ align-items:center!important;justify-content:center!important;gap:0!important;
+ font-size:0!important;line-height:1!important;
+}
+#watch #videoShell.theater-mode #fullscreenToggle svg{
+ width:19px!important;height:19px!important;flex:0 0 19px!important;
+ display:block!important;
+}
+#watch #videoShell.theater-mode #theaterLabel{display:none!important}
+#watch #videoShell.theater-mode .theater-dock:hover,
+#watch #videoShell.theater-mode .theater-dock:focus-within{opacity:1;background:rgba(8,22,33,.85)!important}
+#watch #videoShell.theater-mode #fullscreenToggle:focus-visible{outline:2px solid #f3c38d!important;outline-offset:2px}
+@media(pointer:coarse){#watch #videoShell.theater-mode .theater-dock{opacity:.82}}
+@media(prefers-reduced-motion:reduce){#watch #videoShell.theater-mode .theater-dock{transition:none}}

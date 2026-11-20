@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/bluehour.css?v=1">
 <link rel="stylesheet" href="/layout-fixes.css?v=2">
 <link rel="stylesheet" href="/simplify.css?v=1"><link rel="stylesheet" href="/cinema-dock.css?v=1">
-<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=8"><link rel="stylesheet" href="/watch-redesign.css?v=3">
+<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=8"><link rel="stylesheet" href="/watch-redesign.css?v=4">
 </head>
 <body>
 <header class="site-header">
@@ -136,6 +136,22 @@
             </div>
             <p id="catalogStatus" class="catalog-help" role="status" aria-live="polite">Start typing to see movie and series suggestions.</p>
             <p id="catalogNowPlaying" class="catalog-now-playing hidden" role="status" aria-live="polite"></p>
+            <section id="movieRoomSync" class="movie-room-sync hidden" aria-label="Room movie timing controls">
+              <div class="movie-room-sync-header">
+                <div><span class="eyebrow">ROOM TIMELINE</span>
+                  <strong id="movieSyncStatus" role="status" aria-live="polite">Waiting for a movie...</strong></div>
+                <button id="movieCatchup" type="button" class="secondary-button small">↻ Join at room time</button>
+              </div>
+              <div id="movieHostControls" class="movie-host-controls hidden">
+                <button id="moviePlayClock" type="button" class="secondary-button small">▶ I'm playing now</button>
+                <button id="moviePauseClock" type="button" class="secondary-button small">Ⅱ Pause room clock</button>
+                <label for="movieTimeInput" class="movie-time-label">Movie position
+                  <input id="movieTimeInput" type="text" inputmode="numeric" placeholder="12:34" maxlength="8" aria-label="Movie position in minutes and seconds">
+                </label>
+                <button id="movieSetTime" type="button" class="secondary-button small">Set room time</button>
+              </div>
+              <p id="movieSyncHint" class="movie-sync-hint">Room time is an estimate. Tap Join at room time to reload from that position. Browser autoplay and external player support vary.</p>
+            </section>
             <div id="catalogResults" class="catalog-results" aria-label="Movie and TV search suggestions"></div>
             <form id="catalogPlayForm" class="catalog-play-form hidden" aria-label="Share selected movie or series">
               <div class="catalog-selection">
@@ -160,7 +176,7 @@
               <p id="catalogEpisodeHelp" class="catalog-episode-help hidden" role="status" aria-live="polite"></p>
               <p class="catalog-source-note">This is an unverified third-party player. If your antivirus flags its site or redirects, do not bypass the warning. Use a trusted viewing service instead.</p>
             </form>
-            <p class="catalog-disclaimer">Sources may contain ads or block embedding. Only watch content you are authorized to access; third-party playback is not synchronized. Title metadata from <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> or <a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>. This product is not endorsed or certified by TMDB.</p>
+            <p class="catalog-disclaimer">Sources may contain ads or block embedding. Only watch content you are authorized to access; room join timing is approximate; player buffering, pauses, and seeking may still differ. Title metadata from <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> or <a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>. This product is not endorsed or certified by TMDB.</p>
           </section>
           </div>
           <div id="youtubeSourcePanel" role="tabpanel" aria-labelledby="tabYouTube" class="source-panel hidden">
@@ -242,6 +258,6 @@
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=22"></script>
+<script src="/app.js?v=23"></script>
 </body>
 </html>

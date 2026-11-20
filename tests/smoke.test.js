@@ -412,7 +412,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=22')&&html.includes('/website-player.css?v=8'));
+ assert.ok(html.includes('/app.js?v=23')&&html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -480,7 +480,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=22'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=23'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -492,7 +492,7 @@ test('the simplified room switches between movie search and YouTube',()=>{
  assert.ok(html.includes('class="toolbar-actions"'),'Player exit action stays outside the video');
  assert.ok(!html.includes('id="websiteForm"')&&!html.includes('id="websiteSyncPanel"'));
  assert.ok(!html.includes('id="websiteCompatibility"')&&!html.includes('Try compatibility mode'));
- assert.ok(html.includes('/watch-redesign.css?v=3'));
+ assert.ok(html.includes('/watch-redesign.css?v=4'));
  assert.ok(frontend.includes("setSourceTab('movies')")&&frontend.includes("setSourceTab('youtube')"));
 });
 test('movie embeds are restricted to the remaining exact-match source and no overlay',()=>{
@@ -507,7 +507,7 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
  assert.ok(frontend.includes("if(unrestricted)frame.removeAttribute('sandbox')"));
  assert.ok(frontend.includes("else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
  assert.ok(frontend.includes('const trusted=verifiedCatalogPlayer(s)'));
- assert.ok(frontend.includes('loadWebsiteFrame(url,trusted)'));
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted)'));
  assert.ok(frontend.includes('websiteLastUnrestricted!==trusted'));
  assert.ok(frontend.includes("unloadWebsiteFrame()"));
  assert.ok(!frontend.includes("window.confirm(message)"));
@@ -742,4 +742,155 @@ test('slow TV metadata cannot override a newer room choice; simultaneous lookups
  assert.equal(state.catalog.type,'movie');
  assert.equal(state.catalog.id,603);
  assert.equal(callCount,1);
+});
+
+
+test('movie room clock: late joins, pauses, seeking, host-only control, switching and host transfer',async()=>{
+ let connect,now=1_900_000_000_000;const sent=[];
+ class Clock extends Date{static now(){return now}}
+ class FakeIO{on(name,fn){if(name==='connection')connect=fn}to(room){return{emit:(event,data)=>sent.push({room,event,data})}}}
+ const exp=()=>({disable(){},use(){},get(){}});exp.static=()=>()=>{};
+ const fakeRequire=id=>id==='express'?exp:id==='http'?{createServer:()=>({listen(){}})}:
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'f'.repeat(n*2)})}:
+  id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ vm.runInNewContext(backend,{
+  Date:Clock,require:fakeRequire,URL:require('node:url').URL,
+  process:{env:{PORT:'3000'}},__dirname:'/app',console,setInterval:()=>({unref(){}})
+ },{filename:'server.js'});
+ const client=id=>{
+  const handlers={},sock={id,data:{},on:(e,fn)=>handlers[e]=fn,join(){},leave(){},
+   to:()=>({emit:(event,data)=>sent.push({room:'others',event,data})}),
+   emit:(event,data)=>sent.push({room:id,event,data})};
+  connect(sock);
+  return{
+   ask:(e,data)=>new Promise(resolve=>handlers[e](data,resolve)),
+   fire:(e,data)=>handlers[e](data)
+  };
+ };
+ const host=client('host'),guest=client('guest');
+ const created=await host.ask('create',{name:'Host'});const id=created.id;
+ assert.equal(created.state.movieTimeline,null);
+ assert.match((await guest.ask('movie:control',{action:'play',position:0,version:0})).error,/No movie/);
+ const join=await guest.ask('join',{id,name:'Guest'});
+ assert.equal(join.state.websiteLeader,'host');
+ const movie=await host.ask('catalog:play',{provider:'vidfast',type:'movie',id:603,title:'The Matrix'});
+ assert.equal(movie.ok,true);
+ assert.equal(movie.url,'https://vidfast.vc/movie/603');
+ now+=75_000;
+ guest.fire('sync');
+ let roomState=sent.filter(x=>x.room==='guest'&&x.event==='state').at(-1).data;
+ assert.equal(roomState.catalog.title,'The Matrix');
+ assert.equal(roomState.movieTimeline.position,75);
+ assert.equal(roomState.movieTimeline.playing,true);
+ assert.equal(roomState.movieTimeline.origin,'estimated');
+ let reply=await guest.ask('movie:control',{version:roomState.version,action:'pause',position:75});
+ assert.match(reply.error,/Only the room host/);
+ const version=roomState.version;
+ reply=await host.ask('movie:control',{version,action:'pause',position:75});
+ assert.equal(reply.ok,true);
+ now+=28_000;
+ guest.fire('sync');roomState=sent.filter(x=>x.room==='guest'&&x.event==='state').at(-1).data;
+ assert.equal(roomState.movieTimeline.position,75,'Paused room clock must not advance');
+ assert.equal(roomState.movieTimeline.playing,false);
+ reply=await host.ask('movie:control',{version,action:'seek',position:125});
+ assert.equal(reply.ok,true);
+ guest.fire('sync');roomState=sent.filter(x=>x.room==='guest'&&x.event==='state').at(-1).data;
+ assert.equal(roomState.movieTimeline.position,125);
+ assert.equal(roomState.movieTimeline.playing,false);
+ reply=await host.ask('movie:control',{version,action:'play',position:125});
+ assert.equal(reply.ok,true);
+ now+=35_500;
+ guest.fire('sync');roomState=sent.filter(x=>x.room==='guest'&&x.event==='state').at(-1).data;
+ assert.equal(roomState.movieTimeline.position,160.5);
+ assert.equal(roomState.movieTimeline.playing,true);
+ assert.match((await host.ask('movie:control',{version,action:'seek',position:-1})).error,/Invalid movie/);
+ assert.match((await host.ask('movie:control',{version,action:'seek',position:86401})).error,/Invalid movie/);
+ assert.match((await host.ask('movie:control',{version:version-1,action:'pause',position:120})).error,/Invalid movie/);
+ assert.match((await host.ask('movie:control',{version,action:'sample',position:170})).error,/Invalid player sample/);
+ reply=await host.ask('movie:control',{version,action:'sample',position:171,playing:true});
+ assert.equal(reply.ok,true);assert.equal(reply.timeline.origin,'player');
+ reply=await host.ask('movie:control',{version,action:'sample',position:172,playing:true});
+ assert.match(reply.error,/too frequent/i);
+ now+=1500;
+ reply=await host.ask('movie:control',{version,action:'sample',position:175,playing:false});
+ assert.equal(reply.ok,true);assert.equal(reply.timeline.playing,false);
+ guest.fire('sync');roomState=sent.filter(x=>x.room==='guest'&&x.event==='state').at(-1).data;
+ assert.equal(roomState.movieTimeline.position,175);
+ assert.equal(roomState.movieTimeline.origin,'player');
+ host.fire('disconnect');
+ const newState=sent.filter(x=>x.event==='state').at(-1).data;
+ assert.equal(newState.websiteLeader,'guest');
+ reply=await guest.ask('movie:control',{version,action:'play',position:175});
+ assert.equal(reply.ok,true,'Control should transfer to the remaining member');
+ now+=10_000;
+ const late=client('late');const lateJoin=await late.ask('join',{id,name:'Late viewer'});
+ assert.equal(lateJoin.state.movieTimeline.position,185);
+ assert.equal(lateJoin.state.websiteUrl,'https://vidfast.vc/movie/603');
+ assert.equal(lateJoin.state.movieTimeline.playing,true);
+ reply=await guest.ask('video',{url:'https://youtu.be/M7lc1UVf-VE'});
+ assert.equal(reply.ok,true);
+ late.fire('sync');
+ const youtube=sent.filter(x=>x.room==='late'&&x.event==='state').at(-1).data;
+ assert.equal(youtube.movieTimeline,null);
+ assert.equal(youtube.catalog,null);
+ assert.equal(youtube.source,'youtube');
+ assert.match((await guest.ask('movie:control',{version,action:'play',position:185})).error,/No movie/);
+});
+
+test('movie time formatting and VidFast join URL preserve exact canonical source',()=>{
+ const start=frontend.indexOf('function movieClockNow(){');
+ const end=frontend.indexOf('function movieUpdateSnapshot(',start);
+ assert.ok(start>0&&end>start,'Room movie time functions missing');
+ const startUrl=frontend.indexOf('function movieEmbedUrl(base,timeline){');
+ const endUrl=frontend.indexOf('function movieSendControl(',startUrl);
+ assert.ok(startUrl>0&&endUrl>startUrl,'Late join embed URL helper missing');
+ const context={movieSnapshot:{position:125.5,playing:true},movieSnapshotAt:1000,
+  Date:class extends Date{static now(){return 31500}},URL};
+ vm.runInNewContext(frontend.slice(start,end)+frontend.slice(startUrl,endUrl)+
+  '\nthis.testMovieClock=movieClockNow;this.testFormat=moviePositionText;this.testParse=movieParseTime;this.testUrl=movieEmbedUrl;',context);
+ assert.equal(context.testMovieClock(),156);
+ assert.equal(context.testFormat(1955),'32:35');
+ assert.equal(context.testFormat(3661),'1:01:01');
+ assert.equal(context.testParse('12:34'),754);
+ assert.equal(context.testParse('1:02:15'),3735);
+ for(const bad of ['','12','1:60','1:01:60','1:2:3:4','-1:22','999:00'])
+  assert.equal(context.testParse(bad),null,'Invalid movie time should fail: '+bad);
+ const url=context.testUrl('https://vidfast.vc/movie/603',{position:1955.6,playing:true});
+ assert.equal(url,'https://vidfast.vc/movie/603?startAt=1955&autoPlay=true');
+ assert.equal(context.testUrl('https://vidfast.vc/tv/1399/1/2',{position:0,playing:false}),
+  'https://vidfast.vc/tv/1399/1/2');
+ assert.ok(frontend.includes('websiteSelectedVersion!==s.version'),
+  'New movie selection must reload even when sharing the same URL');
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted)'));
+ assert.ok(frontend.includes('movieCatchupNow()'));
+});
+
+test('movie postMessage handling validates exact origin, iframe identity, movie and timestamp',()=>{
+ assert.ok(frontend.includes("const MOVIE_PLAYER_ORIGIN='https://vidfast.vc'"));
+ assert.ok(frontend.includes('event.origin!==MOVIE_PLAYER_ORIGIN'));
+ assert.ok(frontend.includes("event.source!==$('websiteFrame').contentWindow"));
+ assert.ok(frontend.includes("data.type!=='PLAYER_EVENT'"));
+ assert.ok(frontend.includes("Number(info.tmdbId)!==Number(lastState.catalog.id)"));
+ assert.ok(frontend.includes('!Number.isFinite(position)||position<0||position>86400'));
+ assert.ok(frontend.includes("socket.on('movie:timeline'"));
+ assert.ok(frontend.includes('movieLastCorrectionAt>15000'),'Rate-limit repeated correction commands');
+ assert.ok(frontend.includes("movieSendControl('sample',position,playing)"));
+ assert.ok(!frontend.includes('frame.contentDocument'),'Never read cross-origin player DOM');
+});
+
+test('fullscreen exit is an accessible unobtrusive top-left icon, not a bottom-center overlay',()=>{
+ const css=fs.readFileSync(path.join(root,'public/watch-redesign.css'),'utf8');
+ const block=css.slice(css.indexOf('/* Unobtrusive fullscreen exit:'));
+ assert.ok(block.includes('#watch #videoShell.theater-mode .theater-dock'));
+ assert.ok(block.includes('top:max(12px,env(safe-area-inset-top))!important'));
+ assert.ok(block.includes('left:max(12px,env(safe-area-inset-left))!important'));
+ assert.ok(block.includes('bottom:auto!important'));
+ assert.ok(block.includes('right:auto!important'));
+ assert.ok(block.includes('transform:none!important'));
+ assert.ok(block.includes('max-width:48px!important'));
+ assert.ok(block.includes('#watch #videoShell.theater-mode #theaterLabel{display:none!important}'));
+ assert.ok(block.includes('focus-visible'));
+ assert.ok(html.indexOf('/watch-redesign.css?v=4')>html.indexOf('/no-fullscreen-chat.css?v=1'));
+ assert.ok(frontend.includes("document.addEventListener('keydown'"));
+ assert.ok(html.includes('id="fullscreenToggle"'));
 });

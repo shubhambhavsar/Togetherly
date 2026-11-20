@@ -345,14 +345,25 @@ const websiteTimeline=r=>{
  return {position:Math.max(0,Math.min(86400,t.position+(t.playing?(now-t.at)/1000:0))),
   playing:t.playing,version:r.version,receivedAt:now};
 };
+// A room timeline is an estimate until the host reports real player progress.
+// It never depends on reading a cross-origin iframe directly.
+const roomMovieTimeline=r=>{
+ const t=r.movieTimeline;
+ if(r.source!=='website'||!r.catalog||!t)return null;
+ const now=Date.now();
+ return {position:Math.max(0,Math.min(86400,t.position+(t.playing?(now-t.at)/1000:0))),
+  playing:t.playing,version:r.version,receivedAt:now,
+  origin:t.origin||'estimated'};
+};
 const state=r=>({source:r.source||'youtube',websiteUrl:r.websiteUrl||'',video:r.video,
  playing:r.source==='website'?false:r.playing,
  position:r.position+(r.playing&&r.source!=='website'?(Date.now()-r.at)/1000:0),
- version:r.version,catalog:r.catalog||null,websiteLeader:r.websiteLeader||null,websiteTimeline:websiteTimeline(r)});
+ version:r.version,catalog:r.catalog||null,websiteLeader:r.websiteLeader||null,
+ movieTimeline:roomMovieTimeline(r),websiteTimeline:websiteTimeline(r)});
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
 const callMembers=r=>[...r.callUsers].map(([id,meta])=>({id,role:meta.role,sharing:!!meta.sharing}));
 const publishCall=r=>io.to(r.id).emit('call:members',callMembers(r));
-function newRoom(id){return {id,users:new Map(),websiteLeader:null,websiteTimeline:null,catalog:null,source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
+function newRoom(id){return {id,users:new Map(),websiteLeader:null,websiteTimeline:null,movieTimeline:null,catalog:null,source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
 setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
 
 function leaveCall(s) {
@@ -376,7 +387,7 @@ s.on('room:rename',(d,ack)=>{
  r.users.set(s.id,newName);io.to(r.id).emit('members',members(r));
  ack?.({ok:true});
 });
-s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.catalog=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.movieTimeline=null;r.catalog=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
 // The old unrestricted website-sharing socket event remains reject-only for older clients.
 s.on('website',(_d,ack)=>{
@@ -408,6 +419,9 @@ s.on('catalog:play',async(d,ack)=>{
  r.catalog={type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
    label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})};
  r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ // Start an approximate room clock as soon as the movie is shared.
+ // The host can correct it after the real player starts or pauses.
+ r.movieTimeline={position:0,playing:true,at:Date.now(),origin:'estimated'};
  io.to(r.id).emit('state',state(r));
  ack?.({ok:true,url:choice.url});
 });
@@ -434,7 +448,7 @@ s.on('queue:add',(d,ack)=>{
 s.on('queue:play',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Video not found in queue'});
- const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.catalog=null;r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.movieTimeline=null;r.catalog=null;r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
  io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
 });
 s.on('queue:remove',(d,ack)=>{
@@ -443,6 +457,34 @@ s.on('queue:remove',(d,ack)=>{
  r.queue.splice(i,1);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
 });
 s.on('playback',d=>{const r=roomOf(s);if(!r||r.source==='website'||d?.version!==r.version||!['play','pause','seek'].includes(d?.action)||!Number.isFinite(d.position)||d.position<0||d.position>86400)return;r.position=d.position;r.playing=d.action==='play'?true:d.action==='pause'?false:r.playing;r.at=Date.now();s.to(r.id).emit('state',state(r))});
+// Room-owner timeline controls are versioned and never touch third-party video URLs.
+s.on('movie:control',(d,ack)=>{
+ const r=roomOf(s);
+ if(!r||r.source!=='website'||!r.catalog||!r.movieTimeline)
+  return ack?.({error:'No movie is shared in this room'});
+ if(r.websiteLeader!==s.id)return ack?.({error:'Only the room host can adjust the movie clock'});
+ if(d?.version!==r.version||!['play','pause','seek','sample'].includes(d?.action)||
+    !Number.isFinite(d?.position)||d.position<0||d.position>86400)
+  return ack?.({error:'Invalid movie position or outdated room version'});
+ if(d.action==='sample'&&typeof d.playing!=='boolean')
+  return ack?.({error:'Invalid player sample'});
+ const now=Date.now();
+ if(d.action==='sample'&&now-(s.data.lastMovieSampleAt||0)<1000)
+  return ack?.({error:'Player updates are too frequent'});
+ if(d.action==='sample')s.data.lastMovieSampleAt=now;
+ const previous=roomMovieTimeline(r);
+ const playing=d.action==='play'?true:d.action==='pause'?false:
+  d.action==='sample'?d.playing:r.movieTimeline.playing;
+ const position=Math.min(86400,d.position);
+ // Ignore tiny host event jitter rather than constantly adjusting the room.
+ if(d.action==='sample'&&previous&&r.movieTimeline.origin==='player'&&
+    Math.abs(previous.position-position)<1.8&&previous.playing===playing)
+  return ack?.({ok:true});
+ r.movieTimeline={position,playing,at:now,
+  origin:d.action==='sample'?'player':'manual'};
+ io.to(r.id).emit('movie:timeline',roomMovieTimeline(r));
+ ack?.({ok:true,timeline:roomMovieTimeline(r)});
+});
 s.on('sync',()=>{const r=roomOf(s);if(r)s.emit('state',state(r))});
 s.on('website:sample',(d,ack)=>{
  const r=roomOf(s);
