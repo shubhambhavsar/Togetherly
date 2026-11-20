@@ -162,7 +162,14 @@ async function openExplore(){
 function closeExplore(){
  $('discoverModal').classList.add('hidden');document.body.classList.remove('modal-lock');
 }
-$('openExplore').onclick=openExplore;$('queueExplore').onclick=openExplore;
+$('openExplore').onclick=openExplore;
+$('queueExplore').onclick=()=>{
+ if(mobileIsCompact())mobileShowSheet('choose');
+ else{
+  setSourceTab('movies');
+  $('mobilePickerPanel').scrollIntoView({behavior:'smooth',block:'start'});
+ }
+};
 $('closeExplore').onclick=closeExplore;$('discoverScrim').onclick=closeExplore;
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('discoverModal').classList.contains('hidden'))closeExplore()});
 function updateBrowseUrl(q){$('openYouTubeSearch').href='https://www.youtube.com/results?search_query='+encodeURIComponent(q||'full movie official')}
