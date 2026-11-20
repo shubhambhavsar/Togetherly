@@ -1169,7 +1169,11 @@ test('WebRTC reconnect waits for transient drops, restarts ICE, and cancels upon
  const last=pending.at(-1);
  assert.equal(last.canceled,true,'Any pending watchdog must be canceled once connected');
  context.schedule('guest',pc);
- assert.equal(pending.length,1,'A new transient issue should get a grace period only');
+ assert.equal(pending.length,1,'Do not restart a healthy connection');
+ pc.connectionState='disconnected';pc.iceConnectionState='disconnected';
+ context.schedule('guest',pc);
+ assert.equal(pending.length,2,'A new drop should receive a fresh grace period');
+ assert.equal(pending.at(-1).delay,4500);
 });
 
 test('WebRTC recovery never restarts a peer who has left the room',()=>{
