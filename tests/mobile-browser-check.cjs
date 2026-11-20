@@ -352,6 +352,17 @@ async function check(){
   });
   assert.equal(await movieFrame.getAttribute('sandbox'),'allow-scripts allow-same-origin allow-forms',
    'Stopped player must regain iframe sandbox');
+  const afterMovieUi=await host.evaluate(()=>({
+   body:document.body.className,
+   mobileSheet:typeof mobileSheet==='undefined'?'missing':mobileSheet,
+   chatOpen:typeof chatOpen==='undefined'?'missing':chatOpen,
+   theater:theaterActive(),full:document.fullscreenElement?.id,
+   navDisplay:getComputedStyle(document.getElementById('mobileNav')).display,
+   mediaSelected:lastState?.selectedMedia,
+   fallback:theaterFallback
+  }));
+  console.log('Post movie theater navigation:',JSON.stringify(afterMovieUi));
+  assert.ok(!afterMovieUi.theater,'Movie Theater must exit cleanly');
   await host.locator('#mobileNavPeople').click();
 
   // Separate browser storage from the host; real guests have independent nicknames.
