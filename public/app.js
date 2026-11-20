@@ -276,6 +276,8 @@ function updateTheaterUI(){
  document.body.classList.toggle('theater-lock',active);
  $('fullscreenToggle').setAttribute('aria-pressed',String(active));
  $('fullscreenToggle').setAttribute('aria-label',active?'Exit watch fullscreen':'Enter watch fullscreen');
+ $('movieLocalFullscreen').setAttribute('aria-label',active?'Minimize Togetherly Theater':'Enter Togetherly Theater fullscreen');
+ $('movieLocalFullscreen').textContent=active?'⤢':'⛶';
  $('toolbarFullscreen').setAttribute('aria-pressed',String(active));
  $('theaterLabel').textContent=active?'Exit fullscreen':'Fullscreen';
  if(active&&chatOpen)toggleChat(false);
@@ -797,6 +799,28 @@ let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false;
 // never receives click/touch input, including during Play/Pause/Seek. The
 // cross-origin source stays unsandboxed for compatibility: scripted popups and
 // redirects remain possible, and native playback commands may be unsupported.
+// Movie-area clicks reveal a compact Togetherly toolbar but never reach the
+// unsandboxed iframe. The invisible shield stays active while controls fade.
+const MOVIE_CONTROLS_IDLE_MS=3200;
+let movieControlsVisible=true,movieControlsHideTimer=null;
+function showMovieControls(){
+ movieControlsVisible=true;
+ $('websitePlayer').classList.add('controls-visible');
+ if(movieControlsHideTimer)clearTimeout(movieControlsHideTimer);
+ movieControlsHideTimer=null;
+ if(!movieLocalPaused)movieControlsHideTimer=setTimeout(()=>{
+  if(movieLocalPaused||!websiteSelectedUrl)return;
+  movieControlsVisible=false;
+  $('websitePlayer').classList.remove('controls-visible');
+ },MOVIE_CONTROLS_IDLE_MS);
+}
+function hideMovieControls(){
+ if(movieLocalPaused)return;
+ if(movieControlsHideTimer)clearTimeout(movieControlsHideTimer);
+ movieControlsHideTimer=null;
+ movieControlsVisible=false;
+ $('websitePlayer').classList.remove('controls-visible');
+}
 let movieLocalPaused=false,movieLocalPausedAt=0;
 let movieLocalExpectedStart=0,movieLocalStartAt=0;
 let movieLocalFeedback='Playback requested. Player status is unverified.';
@@ -818,6 +842,11 @@ function setWebsiteClickGuard(){
   ($('websiteFrame').hasAttribute('src')||movieLocalPaused));
  $('websitePlayer').classList.toggle('click-protected',active);
  $('websiteClickShield').classList.toggle('hidden',!active);
+ $('websitePlayer').classList.toggle('controls-visible',active&&(movieControlsVisible||movieLocalPaused));
+ if(!active){
+  if(movieControlsHideTimer)clearTimeout(movieControlsHideTimer);
+  movieControlsHideTimer=null;
+ }
  $('movieLocalPlay').disabled=!active;
  $('movieLocalPause').disabled=!active||movieLocalPaused;
  $('movieLocalBack').disabled=!active;
@@ -834,6 +863,7 @@ function movieLocalReload(position){
  websiteSelectedVersion=lastState.version;
  updateWebsitePlayerActions(websiteSelectedUrl);
  movieLocalStatus('Playback requested near '+moviePositionText(at)+'. Waiting for player confirmation.');
+ showMovieControls();
  return true;
 }
 function movieLocalPlay(){
@@ -871,7 +901,7 @@ function movieLocalPause(){
  // postMessage. This is a hard pause, not native HTMLMediaElement.pause().
  unloadWebsiteFrame();
  movieLocalStatus('Paused near '+moviePositionText(at)+'. Resume reloads the player.');
- setWebsiteClickGuard();
+ showMovieControls();setWebsiteClickGuard();
  if(movieIsHost())movieSendControl('pause',at);
 }
 function movieLocalSkip(delta){
@@ -881,7 +911,7 @@ function movieLocalSkip(delta){
  if(movieLocalPaused){
   movieLocalPausedAt=at;
   movieLocalStatus('Paused near '+moviePositionText(at)+'. Resume to play from here.');
-  setWebsiteClickGuard();
+  showMovieControls();setWebsiteClickGuard();
  }else if(movieFrameEventsSeen&&moviePostCommand('seek',at)){
   movieLocalStatus('Seek requested near '+moviePositionText(at)+'. Waiting for confirmation.');
   const currentToken=movieLocalCommandToken;
@@ -894,11 +924,24 @@ function movieLocalSkip(delta){
  }else movieLocalReload(at);
  if(movieIsHost())movieSendControl('seek',at);
 }
-$('movieLocalPlay').onclick=event=>{event.stopPropagation();movieLocalPlay()};
-$('movieLocalPause').onclick=event=>{event.stopPropagation();movieLocalPause()};
-$('movieLocalBack').onclick=event=>{event.stopPropagation();movieLocalSkip(-10)};
-$('movieLocalForward').onclick=event=>{event.stopPropagation();movieLocalSkip(10)};
-$('websiteClickShield').onclick=()=>toast('Movie taps are locked. Use Togetherly playback controls below.');
+$('movieLocalPlay').onclick=event=>{event.stopPropagation();movieLocalPlay();showMovieControls()};
+$('movieLocalPause').onclick=event=>{event.stopPropagation();movieLocalPause();showMovieControls()};
+$('movieLocalBack').onclick=event=>{event.stopPropagation();movieLocalSkip(-10);showMovieControls()};
+$('movieLocalForward').onclick=event=>{event.stopPropagation();movieLocalSkip(10);showMovieControls()};
+$('movieLocalFullscreen').onclick=async event=>{
+ event.stopPropagation();
+ await toggleTheater();
+ showMovieControls();
+};
+$('websiteClickShield').onclick=event=>{
+ if(event.target.closest('button'))return;
+ if(movieControlsVisible)hideMovieControls();
+ else showMovieControls();
+};
+$('websiteClickShield').addEventListener('pointermove',event=>{
+ if(event.pointerType==='mouse'&&websiteSelectedUrl)showMovieControls();
+});
+$('websiteClickShield').addEventListener('focusin',showMovieControls);
 
 let websiteSelectedVersion=null,movieSnapshot=null,movieSnapshotAt=0;
 let movieFrameEventsSeen=false,movieFrameLastProgress=null,movieFrameLastProgressAt=0;
@@ -1106,7 +1149,7 @@ function loadWebsiteFrame(url,compatibilityMode=false){
  movieLocalPaused=false;
  frame.setAttribute('src',url);
  movieLocalStatus('Playback requested near '+moviePositionText(movieLocalExpectedStart)+'. Player status unverified.');
- setWebsiteClickGuard();
+ showMovieControls();setWebsiteClickGuard();
 }
 function updateWebsitePlayerActions(url){
  const stopped=Boolean(url&&websiteStoppedFor===url);
