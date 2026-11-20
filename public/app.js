@@ -575,6 +575,7 @@ const CATALOG_ALLOWED_PLAYERS=Object.freeze({
 let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false,websiteLastUnrestricted=false;
 let websiteSelectedVersion=null,movieSnapshot=null,movieSnapshotAt=0;
 let movieFrameEventsSeen=false,movieFrameLastProgress=null,movieFrameLastProgressAt=0;
+let movieFrameLastPlaying=null,movieLastPlaybackCommandAt=0;
 let movieLastReportedAt=0,movieLastCorrectionAt=0;
 function verifiedCatalogPlayer(s){
  const c=s?.catalog,p=CATALOG_ALLOWED_PLAYERS[c?.provider];
@@ -697,7 +698,7 @@ function movieCorrectGuestDrift(){
  if(target===null||movieFrameLastProgress===null)return;
  const now=Date.now();
  const local=movieFrameLastProgress+
-  (movieSnapshot.playing?Math.max(0,(now-movieFrameLastProgressAt)/1000):0);
+  (movieFrameLastPlaying?Math.max(0,(now-movieFrameLastProgressAt)/1000):0);
  if(Math.abs(local-target)>6&&now-movieLastCorrectionAt>15000){
   movieLastCorrectionAt=now;moviePostCommand('seek',Math.floor(target));
  }
@@ -718,7 +719,7 @@ window.addEventListener('message',event=>{
  const playing=typeof info.playing==='boolean'?info.playing:
   ['play','playing','timeupdate','seeked'].includes(eventType)?true:false;
  movieFrameEventsSeen=true;
- movieFrameLastProgress=position;movieFrameLastProgressAt=Date.now();
+ movieFrameLastProgress=position;movieFrameLastProgressAt=Date.now();movieFrameLastPlaying=playing;
  if(movieIsHost()&&Date.now()-movieLastReportedAt>=1550){
   movieLastReportedAt=Date.now();movieSendControl('sample',position,playing);
  }else movieCorrectGuestDrift();
@@ -727,7 +728,10 @@ socket.on('movie:timeline',t=>{
  movieUpdateSnapshot(t);
  // Only attempt optional cross-origin commands after the player sends real events.
  if(!movieIsHost()&&movieFrameEventsSeen&&t?.playing!==undefined){
-  moviePostCommand(t.playing?'play':'pause');
+  if(movieFrameLastPlaying!==t.playing&&Date.now()-movieLastPlaybackCommandAt>12000){
+   movieLastPlaybackCommandAt=Date.now();
+   moviePostCommand(t.playing?'play':'pause');
+  }
   movieCorrectGuestDrift();
  }
 });
@@ -752,7 +756,8 @@ function unloadWebsiteFrame(){
 }
 function loadWebsiteFrame(url,unrestricted){
  const frame=$('websiteFrame');
- movieFrameEventsSeen=false;movieFrameLastProgress=null;movieFrameLastProgressAt=0;movieLastCorrectionAt=Date.now();
+ movieFrameEventsSeen=false;movieFrameLastProgress=null;movieFrameLastProgressAt=0;
+ movieFrameLastPlaying=null;movieLastCorrectionAt=Date.now();movieLastPlaybackCommandAt=Date.now();
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
  if(unrestricted)frame.removeAttribute('sandbox');
  else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
