@@ -289,13 +289,22 @@ document.addEventListener('fullscreenchange',()=>{
 });
 
 $('load').onclick=()=>{if(!room)return;socket.emit('video',{url:$('videoURL').value},d=>{if(d?.error)toast(d.error)})};
-// This suggestion only pre-fills the form. It never navigates or starts a
-// third-party page until a room member explicitly chooses Show website.
-$('suggestFlexflix').onclick=()=>{
- $('websiteURL').value='https://flexflix.site/';
- $('websiteURL').focus();
- notice('Third-party website selected. Review the address and choose Show website to share it.');
-};
+// Movies and YouTube are now separate, discoverable tabs.
+let activeSourceTab='movies';
+function setSourceTab(tab){
+ activeSourceTab=tab==='youtube'?'youtube':'movies';
+ const movies=activeSourceTab==='movies';
+ $('tabMovies').classList.toggle('is-active',movies);
+ $('tabYouTube').classList.toggle('is-active',!movies);
+ $('tabMovies').setAttribute('aria-selected',String(movies));
+ $('tabYouTube').setAttribute('aria-selected',String(!movies));
+ $('movieSourcePanel').classList.toggle('hidden',!movies);
+ $('youtubeSourcePanel').classList.toggle('hidden',movies);
+}
+$('tabMovies').onclick=()=>setSourceTab('movies');
+$('tabYouTube').onclick=()=>setSourceTab('youtube');
+$('youtubeBrowse').onclick=()=>openExplore();
+setSourceTab('movies');
 // Streambert-inspired movie catalogue. TMDB supplies metadata only; sources are
 // provider-controlled embedded sites, not direct playable video under our control.
 // Movie IDs are internal to the catalogue. Viewers select a title instead.
@@ -447,112 +456,6 @@ $('catalogPlayForm').onsubmit=event=>{
   $('catalogStatus').textContent='Player shared. Each viewer loads the third-party source independently. If it fails, try a different source.';
  });
 };
-$('websiteForm').onsubmit=event=>{
- event.preventDefault();
- if(!room)return toast('Join a room first');
- const value=$('websiteURL').value.trim();
- if(!/^https:\/\//i.test(value))return toast('Enter a public HTTPS website address');
- $('openWebsiteInRoom').disabled=true;
- socket.timeout(9000).emit('website',{url:value},(error,ack)=>{
-  $('openWebsiteInRoom').disabled=false;
-  if(error||ack?.error)toast(ack?.error||'Could not share this website');
- })
-};
-
-// Movie timing requires a separately installed browser companion with access
-// to the actual HTML5 media element. Same-origin policy forbids direct iframe reads.
-const WEBSITE_SYNC_CHANNEL='togetherly-sync-v1';
-let websiteSyncActive=false,websiteCompanionSeen=false,websitePlayerSeenAt=0;
-let websiteSyncUrl='',websiteSyncTimeline=null,websiteSyncLastPublishAt=0;
-function supportsWebsiteSync(raw){
- try{const u=new URL(raw);return u.protocol==='https:'&&
-  (u.hostname==='flexflix.site'||u.hostname==='www.flexflix.site')}catch{return false}
-}
-function websiteSyncReady(){
- return !!room&&lastState?.source==='website'&&
-  supportsWebsiteSync(lastState.websiteUrl)&&
-  websiteStoppedFor!==lastState.websiteUrl;
-}
-function websiteSyncRole(){
- return me&&lastState?.websiteLeader===me?'host':'guest';
-}
-function websiteSyncPost(action,payload={}){
- window.postMessage({channel:WEBSITE_SYNC_CHANNEL,from:'page',action,...payload},location.origin);
-}
-function websiteSyncStatus(){
- const btn=$('websiteSyncToggle'),status=$('websiteSyncStatus');
- btn.setAttribute('aria-pressed',String(websiteSyncActive));
- btn.textContent=websiteSyncActive?'Disable auto sync':'Enable auto sync';
- btn.disabled=!websiteSyncReady();
- if(!websiteSyncReady()){
-  status.textContent='Share a FlexFlix website in a room to enable optional sync.';return
- }
- if(!websiteSyncActive){
-  status.textContent='Off · Each viewer controls their own movie.';return
- }
- if(!websiteCompanionSeen){
-  status.textContent='Companion not detected. Install it on each desktop browser, then reload.';return
- }
- if(Date.now()-websitePlayerSeenAt>9000){
-  status.textContent='Looking for an accessible HTML5 player. External nested player frames may be unsupported.';return
- }
- status.textContent=websiteSyncRole()==='host'
-  ?'Host timing active · Broadcasting your movie position.'
-  :(websiteSyncTimeline?'Guest drift correction active.':'Connected · Waiting for the host timeline.');
-}
-function websiteSyncDisable(){
- websiteSyncActive=false;websiteSyncTimeline=null;websitePlayerSeenAt=0;
- websiteSyncPost('DISABLE');websiteSyncStatus();
-}
-$('websiteSyncToggle').onclick=()=>{
- if(!websiteSyncReady())return;
- if(websiteSyncActive){websiteSyncDisable();return}
- websiteSyncActive=true;websiteCompanionSeen=false;websitePlayerSeenAt=0;
- websiteSyncPost('HELLO');
- websiteSyncPost('ENABLE',{role:websiteSyncRole()});
- websiteSyncStatus();
-};
-window.addEventListener('message',event=>{
- if(event.source!==window||event.origin!==location.origin)return;
- const d=event.data;
- if(d?.channel!==WEBSITE_SYNC_CHANNEL||d.from!=='companion')return;
- if(d.type==='AVAILABLE'){websiteCompanionSeen=true;websiteSyncStatus();return}
- if(!websiteSyncActive||!websiteSyncReady())return;
- if(d.type==='SAMPLE'&&d.sample){
-  const sample=d.sample;
-  if(!Number.isFinite(sample.position)||sample.position<0||sample.position>86400||
-    typeof sample.playing!=='boolean')return;
-  websitePlayerSeenAt=Date.now();
-  if(websiteSyncRole()==='host'&&websitePlayerSeenAt-websiteSyncLastPublishAt>=1000){
-   websiteSyncLastPublishAt=websitePlayerSeenAt;
-   socket.emit('website:sample',{version,position:sample.position,playing:sample.playing});
-  }
-  websiteSyncStatus();return
- }
- if(d.type==='PLAY_BLOCKED')$('websiteSyncStatus').textContent='Tap Play on the movie once to allow browser playback.';
-});
-function websiteSyncTarget(timeline){
- if(!websiteSyncActive||!websiteSyncReady()||websiteSyncRole()==='host')return;
- if(timeline?.version!==version||!Number.isFinite(timeline.position))return;
- websiteSyncTimeline=timeline;
- websiteSyncPost('TARGET',{timeline:{
-  position:timeline.position,playing:timeline.playing,version:timeline.version
- }});
- websiteSyncStatus();
-}
-socket.on('website:timeline',d=>{
- if(!d||d.version!==version)return;
- websiteSyncTarget(d.timeline);
-});
-setInterval(()=>{
- if(!websiteSyncReady())return;
- websiteSyncPost('HELLO');
- if(websiteSyncActive){
-  websiteSyncPost('ENABLE',{role:websiteSyncRole()});
-  websiteSyncStatus();
- }
-},5000);
-
 let ytScriptStarted=false,playerTimeout=null;
 function playerHelp(message,error=false){
  $('playerMessage').textContent=message;$('playerFallback').classList.remove('hidden');
@@ -596,28 +499,30 @@ $('retryPlayer').onclick=()=>{
 };
 loadYouTubeAPI();
 function sendPlayback(action){if(!playerReady||applying||lastState?.source==='website')return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
-// External sites are sandboxed by default. Every browser must explicitly opt into
-// removing the sandbox for an individual exact URL; this never changes room state.
+// Only exact, server-generated movie source URLs bypass the iframe sandbox.
+// A legacy arbitrary shared-website URL remains sandboxed, never auto-trusted.
 const WEBSITE_FRAME_SANDBOX='allow-scripts allow-presentation';
-let websiteCompatibilityFor=null,websiteStoppedFor=null,websiteSelectedUrl=null;
-let websiteExitGuardArmed=false;
-function websiteRoomUrl(){
- if(lastState?.source!=='website'||typeof lastState.websiteUrl!=='string')return null;
- try{
-  const u=new URL(lastState.websiteUrl);
-  return u.protocol==='https:'?u.toString():null;
- }catch{return null}
+const CATALOG_ALLOWED_PLAYERS=Object.freeze({
+ vidsrc:{movie:id=>'https://vsembed.su/embed/movie/'+id,tv:(id,s,e)=>'https://vsembed.su/embed/tv/'+id+'/'+s+'/'+e},
+ vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e},
+ vidlove:{movie:id=>'https://player.vidlove.cc/embed/movie/'+id,tv:(id,s,e)=>'https://player.vidlove.cc/embed/tv/'+id+'/'+s+'/'+e}
+});
+let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false,websiteLastUnrestricted=false;
+function verifiedCatalogPlayer(s){
+ const c=s?.catalog,p=CATALOG_ALLOWED_PLAYERS[c?.provider];
+ if(!p||!['movie','tv'].includes(c.type))return false;
+ const id=Number(c.id),season=Number(c.season),episode=Number(c.episode);
+ if(!Number.isSafeInteger(id)||id<1||id>999999999)return false;
+ if(c.type==='tv'&&(!Number.isSafeInteger(season)||season<1||season>99||
+  !Number.isSafeInteger(episode)||episode<1||episode>999))return false;
+ const expected=c.type==='movie'?p.movie(id):p.tv(id,season,episode);
+ return s.websiteUrl===expected;
 }
-// This is a best-effort browser warning, not a reliable popup or redirect blocker.
-// Browsers only show it in some circumstances, typically after user interaction.
-function warnBeforeExternalNavigation(event){
- event.preventDefault();
- event.returnValue=true;
-}
-function setWebsiteExitGuard(enabled){
- if(websiteExitGuardArmed===enabled)return;
- websiteExitGuardArmed=enabled;
- if(enabled)window.addEventListener('beforeunload',warnBeforeExternalNavigation);
+function warnBeforeExternalNavigation(e){e.preventDefault();e.returnValue=true}
+function setWebsiteExitGuard(on){
+ if(websiteExitGuardArmed===on)return;
+ websiteExitGuardArmed=on;
+ if(on)window.addEventListener('beforeunload',warnBeforeExternalNavigation);
  else window.removeEventListener('beforeunload',warnBeforeExternalNavigation);
 }
 function unloadWebsiteFrame(){
@@ -626,29 +531,22 @@ function unloadWebsiteFrame(){
  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
  setWebsiteExitGuard(false);
 }
-function loadWebsiteFrame(url,compatibility=false){
+function loadWebsiteFrame(url,unrestricted){
  const frame=$('websiteFrame');
- // Reset before changing sandbox flags. A new navigation is required for a
- // sandbox change to apply to the embedded document.
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
- if(compatibility)frame.removeAttribute('sandbox');
+ if(unrestricted)frame.removeAttribute('sandbox');
  else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
  frame.setAttribute('src',url);
- setWebsiteExitGuard(compatibility);
+ setWebsiteExitGuard(unrestricted);
 }
-function updateWebsiteCompatibilityControls(url){
- const stopped=!!url&&websiteStoppedFor===url;
- const enabled=!stopped&&!!url&&websiteCompatibilityFor===url;
- $('websiteCompatibility').classList.toggle('hidden',enabled||stopped);
- $('websiteRestoreSandbox').classList.toggle('hidden',!enabled);
- $('websiteStop').classList.toggle('hidden',stopped||!url);
+function updateWebsitePlayerActions(url){
+ const stopped=Boolean(url&&websiteStoppedFor===url);
+ $('websiteStop').classList.toggle('hidden',!url||stopped);
  $('websiteResume').classList.toggle('hidden',!stopped);
  $('websiteStopped').classList.toggle('hidden',!stopped);
- $('websiteModeStatus').textContent=stopped
-  ?'Stopped on this device · Togetherly room stays open'
-  :enabled
-   ?'Compatibility mode · Browser may warn before leaving Togetherly'
-   :'Protected preview · Playback is not synchronized';
+ $('websiteModeStatus').textContent=stopped?'Stopped on this device':
+  verifiedCatalogPlayer(lastState)?'Experimental source · Not synchronized':
+  'Protected legacy source · Not synchronized';
 }
 function setWebsitePlayer(s){
  const external=s?.source==='website'&&typeof s.websiteUrl==='string'&&s.websiteUrl.startsWith('https://');
@@ -656,95 +554,56 @@ function setWebsitePlayer(s){
  shell.classList.toggle('website-mode',external);
  $('websitePlayer').classList.toggle('hidden',!external);
  if(external){
-  const url=new URL(s.websiteUrl);
-  const target=url.toString();
-  $('websiteHost').textContent=url.hostname;
-  $('openWebsite').href=target;
-  $('websiteURL').value=target;
-  // A new shared URL must revoke any local exception or stopped state.
-  if(websiteSelectedUrl!==target){
-   websiteSelectedUrl=target;
-   websiteCompatibilityFor=null;
-   websiteStoppedFor=null;
-   loadWebsiteFrame(target,false);
-  }else if(websiteStoppedFor!==target&&!frame.hasAttribute('src')){
-   // Recover a page that was unloaded without changing the shared room URL.
-   websiteCompatibilityFor=null;
-   loadWebsiteFrame(target,false);
+  let target;
+  try{target=new URL(s.websiteUrl);if(target.protocol!=='https:')throw Error('Invalid protocol')}
+  catch{unloadWebsiteFrame();return false}
+  const url=target.toString();
+  $('websiteHost').textContent=s.catalog?.title||target.hostname;
+  $('openWebsite').href=url;
+  const trusted=verifiedCatalogPlayer(s);
+  if(websiteSelectedUrl!==url){
+   websiteSelectedUrl=url;websiteStoppedFor=null;websiteLastUnrestricted=trusted;
+   loadWebsiteFrame(url,trusted);
+  }else if(websiteStoppedFor!==url&&(websiteLastUnrestricted!==trusted||!frame.hasAttribute('src'))){
+   websiteLastUnrestricted=trusted;
+   loadWebsiteFrame(url,trusted);
   }
-  updateWebsiteCompatibilityControls(target);
+  updateWebsitePlayerActions(url);
  }else{
-  websiteSelectedUrl=null;
-  websiteCompatibilityFor=null;
-  websiteStoppedFor=null;
-  unloadWebsiteFrame();
-  updateWebsiteCompatibilityControls(null);
+  websiteSelectedUrl=null;websiteStoppedFor=null;websiteLastUnrestricted=false;
+  unloadWebsiteFrame();updateWebsitePlayerActions(null);
  }
- return external
+ return external;
 }
-$('websiteCompatibility').onclick=()=>{
- const url=websiteRoomUrl();
- if(!url||websiteStoppedFor===url)return;
- const host=new URL(url).hostname;
- const message='Compatibility mode will load '+host+' without iframe sandbox restrictions on this device.\n\n'
-  +'That website may open popups or try to redirect the Togetherly tab. '
-  +'We will ask your browser to warn before leaving, but browsers cannot guarantee protection. '
-  +'Only continue if you trust this website and have permission to view its content.\n\nContinue?';
- if(!window.confirm(message))return;
- websiteCompatibilityFor=url;
- loadWebsiteFrame(url,true);
- updateWebsiteCompatibilityControls(url);
-};
-$('websiteRestoreSandbox').onclick=()=>{
- const url=websiteRoomUrl();
- if(!url||websiteStoppedFor===url)return;
- websiteCompatibilityFor=null;
- loadWebsiteFrame(url,false);
- updateWebsiteCompatibilityControls(url);
-};
 $('websiteStop').onclick=()=>{
- const url=websiteRoomUrl();
- if(!url)return;
- websiteStoppedFor=url;
- websiteCompatibilityFor=null;
- if(websiteSyncActive)websiteSyncDisable();
+ if(!websiteSelectedUrl)return;
+ websiteStoppedFor=websiteSelectedUrl;
  unloadWebsiteFrame();
- updateWebsiteCompatibilityControls(url);
- toast('External website stopped on this device.');
+ updateWebsitePlayerActions(websiteSelectedUrl);
+ toast('Player stopped on this device.');
 };
 $('websiteResume').onclick=()=>{
- const url=websiteRoomUrl();
- if(!url||websiteStoppedFor!==url)return;
+ if(!websiteSelectedUrl||websiteStoppedFor!==websiteSelectedUrl)return;
  websiteStoppedFor=null;
- websiteCompatibilityFor=null;
- loadWebsiteFrame(url,false);
- updateWebsiteCompatibilityControls(url);
+ loadWebsiteFrame(websiteSelectedUrl,verifiedCatalogPlayer(lastState));
+ updateWebsitePlayerActions(websiteSelectedUrl);
 };
 function applyState(s){
  if(!s)return;
  const old=lastState;
  lastState=s;version=s.version;
+ if(old?.source&&old.source!==s.source)setSourceTab(s.source==='website'?'movies':'youtube');
  $('catalogNowPlaying').textContent=s.catalog
   ?'Shared: '+s.catalog.title+' · '+s.catalog.label+
    (s.catalog.type==='tv'?' · S'+s.catalog.season+' E'+s.catalog.episode:'')
   :'';
- const nextSyncUrl=s.source==='website'&&supportsWebsiteSync(s.websiteUrl)?s.websiteUrl:'';
- if(websiteSyncUrl!==nextSyncUrl){
-  if(websiteSyncActive)websiteSyncDisable();
-  websiteSyncUrl=nextSyncUrl;websiteSyncTimeline=null;
- }
- if(websiteSyncActive&&websiteSyncReady()){
-  websiteSyncPost('ENABLE',{role:websiteSyncRole()});
-  if(s.websiteTimeline)websiteSyncTarget(s.websiteTimeline);
- }
- websiteSyncStatus();
  if(old?.video!==s.video&&s.source!=='website')saveRecent({id:s.video,title:'YouTube video'});
  $('videoURL').value='https://www.youtube.com/watch?v='+s.video;
  $('youtubeLink').href=$('videoURL').value;
  if(setWebsitePlayer(s)){
   // An embedded website is its own player; mute the former YouTube playback.
   if(playerReady){applying=true;try{player.pauseVideo()}catch{}finally{setTimeout(()=>applying=false,850)}}
-  $('syncLabel').textContent='Shared website · playback not synchronized';
+  $('syncLabel').textContent='Movie source · playback is independent';
   return
  }
  if(!playerReady)return;
@@ -785,7 +644,6 @@ socket.on('connect',()=>{
  }
 });
 socket.on('disconnect',()=>{
- if(websiteSyncActive)websiteSyncPost('DISABLE');
  notice('Connection lost. Trying to reconnect…');
  $('syncLabel').textContent='Reconnecting…';
  updateChatConnection();leaveCall(false)
