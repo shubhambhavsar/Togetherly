@@ -412,7 +412,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=22')&&html.includes('/website-player.css?v=8'));
+ assert.ok(html.includes('/app.js?v=23')&&html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -480,7 +480,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=22'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=23'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -492,7 +492,7 @@ test('the simplified room switches between movie search and YouTube',()=>{
  assert.ok(html.includes('class="toolbar-actions"'),'Player exit action stays outside the video');
  assert.ok(!html.includes('id="websiteForm"')&&!html.includes('id="websiteSyncPanel"'));
  assert.ok(!html.includes('id="websiteCompatibility"')&&!html.includes('Try compatibility mode'));
- assert.ok(html.includes('/watch-redesign.css?v=3'));
+ assert.ok(html.includes('/watch-redesign.css?v=4'));
  assert.ok(frontend.includes("setSourceTab('movies')")&&frontend.includes("setSourceTab('youtube')"));
 });
 test('movie embeds are restricted to the remaining exact-match source and no overlay',()=>{
@@ -507,7 +507,7 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
  assert.ok(frontend.includes("if(unrestricted)frame.removeAttribute('sandbox')"));
  assert.ok(frontend.includes("else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
  assert.ok(frontend.includes('const trusted=verifiedCatalogPlayer(s)'));
- assert.ok(frontend.includes('loadWebsiteFrame(url,trusted)'));
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted)'));
  assert.ok(frontend.includes('websiteLastUnrestricted!==trusted'));
  assert.ok(frontend.includes("unloadWebsiteFrame()"));
  assert.ok(!frontend.includes("window.confirm(message)"));
