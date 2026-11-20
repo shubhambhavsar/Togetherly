@@ -121,14 +121,16 @@ async function check(){
    assert.ok(layout.overflow<=2,'No horizontal scroll after joining');
   }
   await host.setViewportSize({width:390,height:844});
-  await host.locator('#mobileNav').waitFor({state:'visible'});
+  // When Discover is the initial screen, the mobile dock stays behind
+  // the sheet until the guest chooses content or closes Discover.
+  await host.locator('#mobileNav').waitFor({state:'hidden'});
   const url=host.url();
   assert.match(url,/\/room\/[a-f\d]{24}$/);
-  assert.equal(await host.locator('#mobilePickerPanel').isVisible(),false);
+  await host.locator('#mobilePickerPanel').waitFor({state:'visible'});
+  assert.equal(await host.locator('#roomEmptyState').isVisible(),true,
+    'Empty room should not expose the placeholder YouTube video');
   const overflow=await host.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
   assert.ok(overflow<=2,'Unexpected mobile horizontal scroll: '+overflow);
-  await host.locator('#mobileNavChoose').click();
-  await host.locator('#mobilePickerPanel').waitFor({state:'visible'});
   assert.equal(await host.locator('#mobileNavChoose').getAttribute('aria-expanded'),'true');
   // Stable local metadata reproduces the Android screenshot without TMDB API dependency.
   await host.route('**/api/catalog/search*',route=>route.fulfill({
@@ -186,6 +188,10 @@ async function check(){
   assert.ok(selection.meta.width>=150,'Title metadata column collapsed');
   assert.ok(selection.poster.width>=60,'Selected poster missing');
   assert.ok(selection.scrollWidth<=2,'Selected detail must not create horizontal scrolling');
+  await host.locator('#catalogQueue').click();
+  await host.waitForFunction(()=>Number(document.querySelector('#queueCount').textContent)===1,null,{timeout:10000});
+  assert.match(await host.locator('#queueList').textContent(),/Friends/);
+  assert.match(await host.locator('#queueList').textContent(),/S1 E1/);
   await host.locator('#catalogPlay').scrollIntoViewIfNeeded();
   const playBox=await host.locator('#catalogPlay').boundingBox();
   assert.ok(playBox.width>=300&&playBox.height>=48,'Primary watch button must be wide and tappable');
@@ -258,8 +264,9 @@ async function check(){
   }));
   await host.evaluate(()=>{
    window.__beforeMovieTest=lastState;
-   lastState={...lastState,source:'website',websiteUrl:'https://vidfast.vc/movie/603',
+   lastState={...lastState,selectedMedia:true,source:'website',websiteUrl:'https://vidfast.vc/movie/603',
     catalog:{provider:'vidfast',type:'movie',id:603}};
+   updateRoomEntryView(lastState);
    document.getElementById('videoShell').classList.add('website-mode');
    document.getElementById('websitePlayer').classList.remove('hidden');
    websiteSelectedUrl='https://vidfast.vc/movie/603';
@@ -292,6 +299,10 @@ async function check(){
     'Movie controls must be usable on phone: '+JSON.stringify(g));
   }
   await host.setViewportSize({width:390,height:844});
+  // The toolbar is deliberately invisible until the viewer taps the movie.
+  if(!(await host.locator('#websitePlayer').getAttribute('class')).includes('controls-visible'))
+   await shield.click({position:{x:12,y:12}});
+  await host.locator('#websitePlayer.controls-visible').waitFor({state:'visible'});
   await host.locator('#movieLocalPlay').click();
   await host.frameLocator('#websiteFrame').locator('body[data-command="play"]').waitFor({state:'attached'});
   assert.match(await host.locator('#movieLocalStatus').textContent(),/Playing confirmed/);
@@ -309,22 +320,75 @@ async function check(){
   await shield.waitFor({state:'visible'});
   await shield.click({position:{x:12,y:12}});
   assert.equal(unwantedTabs.length,0,'Permanent shield still intercepts taps after reload');
+  await host.waitForFunction(()=>!document.querySelector('#websitePlayer').classList.contains('controls-visible'),
+   null,{timeout:9000});
+  assert.equal(await shield.isVisible(),true,'Protective layer must stay active while controls are hidden');
+  await shield.click({position:{x:10,y:10}});
+  await host.locator('#websitePlayer.controls-visible').waitFor({state:'visible'});
+  const movieControls=await host.evaluate(()=>{
+   const shell=document.getElementById('videoShell').getBoundingClientRect();
+   return ['movieLocalBack','movieLocalPlay','movieLocalPause','movieLocalForward','movieLocalFullscreen']
+    .map(id=>{const r=document.getElementById(id).getBoundingClientRect();
+     return{id,width:r.width,height:r.height,x:r.x,right:r.right,
+      within:r.x>=shell.x-2&&r.right<=shell.right+2}});
+  });
+  assert.ok(movieControls.every(x=>x.within&&x.height>=40),
+   'Compact control strip must fit the phone: '+JSON.stringify(movieControls));
   assert.equal(host.url(),url,'Third-party frame must not navigate Togetherly in test');
-  await host.locator('#toolbarFullscreen').click();
+  await host.locator('#movieLocalFullscreen').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'visible'});
   assert.equal(await host.locator('#callOverlay').isVisible(),true,'Theater must keep camera tiles above movie');
-  await host.locator('#fullscreenToggle').click();
+  assert.equal(await host.locator('#theaterDock').isVisible(),false,
+   'Fullscreen action belongs in the compact movie controls');
+  await host.locator('#movieLocalFullscreen').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'hidden'});
   await host.evaluate(()=>{
    unloadWebsiteFrame();
    websiteSelectedUrl=null;
    lastState=window.__beforeMovieTest;
+   updateRoomEntryView(lastState);
    document.getElementById('videoShell').classList.remove('website-mode');
    document.getElementById('websitePlayer').classList.add('hidden');
   });
   assert.equal(await movieFrame.getAttribute('sandbox'),'allow-scripts allow-same-origin allow-forms',
    'Stopped player must regain iframe sandbox');
-  await host.locator('#mobileNavPeople').click();
+  const afterMovieUi=await host.evaluate(()=>({
+   body:document.body.className,
+   mobileSheet:typeof mobileSheet==='undefined'?'missing':mobileSheet,
+   chatOpen:typeof chatOpen==='undefined'?'missing':chatOpen,
+   theater:theaterActive(),full:document.fullscreenElement?.id,
+   navDisplay:getComputedStyle(document.getElementById('mobileNav')).display,
+   navRect:document.getElementById('mobileNav').getBoundingClientRect().toJSON(),
+   navPeopleDisplay:getComputedStyle(document.getElementById('mobileNavPeople')).display,
+   navPeopleVisibility:getComputedStyle(document.getElementById('mobileNavPeople')).visibility,
+   navPeopleRect:document.getElementById('mobileNavPeople').getBoundingClientRect().toJSON(),
+   navPeopleOpacity:getComputedStyle(document.getElementById('mobileNavPeople')).opacity,
+   watchVisibility:getComputedStyle(document.getElementById('watch')).visibility,
+   mainOverflow:getComputedStyle(document.querySelector('main')).overflow,
+   watchOverflow:getComputedStyle(document.getElementById('watch')).overflow,
+   elementsAtDock:document.elementsFromPoint(240,800).slice(0,9).map(el=>el.tagName.toLowerCase()+'#'+el.id+'.'+el.className),
+   watchDisplay:getComputedStyle(document.getElementById('watch')).display,
+   watchRect:document.getElementById('watch').getBoundingClientRect().toJSON(),
+   viewport:{w:innerWidth,h:innerHeight,visualW:visualViewport?.width,visualH:visualViewport?.height},
+   mediaSelected:lastState?.selectedMedia,
+   fallback:theaterFallback
+  }));
+  console.log('Post movie theater navigation:',JSON.stringify(afterMovieUi));
+  assert.ok(!afterMovieUi.theater,'Movie Theater must exit cleanly');
+  // Chromium's Locator visibility can be stale just after fullscreen exits
+  // on emulated touch phones. Assert the dock is genuinely topmost, then tap
+  // its on-screen hit target as a user would.
+  const peopleBounds=await host.locator('#mobileNavPeople').evaluate(el=>{
+   const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+   const target=document.elementFromPoint(x,y);
+   return {x,y,hit:target===el||el.contains(target),
+    visibility:getComputedStyle(el).visibility,
+    display:getComputedStyle(el).display};
+  });
+  assert.ok(peopleBounds.hit&&peopleBounds.visibility==='visible'&&
+    peopleBounds.display!=='none','People dock must be touch-accessible: '+JSON.stringify(peopleBounds));
+  await host.touchscreen.tap(peopleBounds.x,peopleBounds.y);
+  await host.locator('#peoplePanel').waitFor({state:'visible',timeout:4500});
 
   // Separate browser storage from the host; real guests have independent nicknames.
   const guestContext=await browser.newContext({
@@ -343,6 +407,7 @@ async function check(){
   await guest.locator('#name').fill('Guest');
   await guest.locator('#join').click();
   await guest.locator('#watch').waitFor({state:'visible',timeout:15000});
+  await guest.locator('#mobilePickerPanel').waitFor({state:'visible'});
   const guestLayout=await guest.evaluate(()=>({
    landingHidden:document.getElementById('landing').hidden,
    landingDisplay:getComputedStyle(document.getElementById('landing')).display,
@@ -352,6 +417,9 @@ async function check(){
   assert.ok(guestLayout.landingHidden&&guestLayout.landingDisplay==='none'&&
     guestLayout.landingHeight===0&&guestLayout.watchHeight>130,
     'Guests must not see both landing and watch screens: '+JSON.stringify(guestLayout));
+  // Empty-room guests see Discover first; close it before switching sections.
+  await guest.locator('#mobileClosePicker').click();
+  await guest.locator('#mobilePickerPanel').waitFor({state:'hidden'});
   await guest.locator('#mobileNavPeople').click();
   await guest.locator('#peoplePanel').waitFor({state:'visible'});
   await guest.waitForFunction(()=>document.querySelectorAll('#members .member').length===2,null,{timeout:12000});

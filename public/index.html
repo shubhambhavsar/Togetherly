@@ -11,7 +11,8 @@
 <link rel="stylesheet" href="/bluehour.css?v=1">
 <link rel="stylesheet" href="/layout-fixes.css?v=2">
 <link rel="stylesheet" href="/simplify.css?v=1"><link rel="stylesheet" href="/cinema-dock.css?v=1">
-<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=10"><link rel="stylesheet" href="/watch-redesign.css?v=4"><link rel="stylesheet" href="/mobile-cinema.css?v=2"><link rel="stylesheet" href="/theme-variants.css?v=1"><link rel="stylesheet" href="/mobile-landing.css?v=1">
+<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=11"><link rel="stylesheet" href="/watch-redesign.css?v=4"><link rel="stylesheet" href="/mobile-cinema.css?v=2"><link rel="stylesheet" href="/theme-variants.css?v=1"><link rel="stylesheet" href="/mobile-landing.css?v=1">
+<link rel="stylesheet" href="/room-experience.css?v=1">
 </head>
 <body>
 <header class="site-header">
@@ -62,6 +63,7 @@
       <div class="watch-stage">
         <div class="video-shell" id="videoShell">
           <div id="player"></div>
+          <div id="roomEmptyState" class="room-empty-state hidden" aria-label="Nothing selected for this room yet"><span class="eyebrow">YOUR ROOM IS READY</span><strong>What should we watch?</strong><p>Discover a movie, episode or YouTube video to start together.</p><button id="roomEmptyDiscover" class="primary-button small" type="button">Browse movies &amp; videos</button></div>
           <div id="websitePlayer" class="website-player hidden" aria-label="Selected movie or TV source">
             <iframe id="websiteFrame" title="Selected third-party movie player" allow="autoplay; encrypted-media; picture-in-picture"
               sandbox="allow-scripts allow-same-origin allow-forms"
@@ -73,6 +75,7 @@
                   <button id="movieLocalPlay" type="button" class="movie-local-button movie-local-primary" aria-label="Play or resume movie on this device">▶ Play</button>
                   <button id="movieLocalPause" type="button" class="movie-local-button movie-local-primary" aria-label="Pause movie on this device">Ⅱ Pause</button>
                   <button id="movieLocalForward" type="button" class="movie-local-button" aria-label="Skip movie ahead about ten seconds">10 ↷</button>
+                  <button id="movieLocalFullscreen" type="button" class="movie-local-button" aria-label="Enter fullscreen with cameras visible" title="Toggle Togetherly Theater">⛶</button>
                 </div>
                 <div class="movie-local-hint"><span aria-hidden="true">◈</span><span id="movieLocalStatus" role="status" aria-live="polite">Movie taps protected. Playback timing is approximate.</span></div>
               </div>
@@ -128,6 +131,7 @@
             <span class="source-library-subtitle">Watch together, wherever you are.</span>
             <button id="mobileClosePicker" type="button" class="mobile-sheet-close" aria-label="Close video picker">✕</button>
           </div>
+          <div id="roomNowPlayingBanner" class="room-now-playing-banner hidden" role="status"><span id="roomNowPlayingText">Someone picked something to watch.</span><button id="roomNowPlayingWatch" type="button" class="secondary-button small">Go to Watch</button></div>
           <div class="source-tabs" role="tablist" aria-label="Choose a video source">
             <button type="button" role="tab" id="tabMovies" aria-controls="movieSourcePanel" aria-selected="true" class="source-tab is-active">Movies &amp; TV</button>
             <button type="button" role="tab" id="tabYouTube" aria-controls="youtubeSourcePanel" aria-selected="false" class="source-tab">YouTube</button>
@@ -201,6 +205,7 @@
                 </label>
                 <input id="catalogProvider" type="hidden" value="vidfast">
                 <button id="catalogPlay" class="secondary-button small" type="submit"><span aria-hidden="true" class="catalog-play-icon">▶</span> Watch with room</button>
+                <button id="catalogQueue" class="secondary-button small" type="button" aria-label="Add the selected movie or TV episode to the shared queue">+ Add to Queue</button>
               </div>
               <p id="catalogEpisodeHelp" class="catalog-episode-help hidden" role="status" aria-live="polite"></p>
               <p id="catalogShareFeedback" class="catalog-share-feedback hidden" role="status" aria-live="polite"></p>
@@ -226,7 +231,7 @@
         <div class="notice" id="notice" aria-live="polite"></div>
       </div>
       <section class="watch-queue">
-        <div class="section-title-row"><div><span class="eyebrow">KEEP THE NIGHT GOING</span><h2>Up next <span id="queueCount" class="subtle-count">0</span></h2></div><button id="queueExplore" class="text-button">+ Find videos</button><button id="mobileQueueToggle" class="mobile-queue-toggle" type="button" aria-expanded="false" aria-controls="queueList">Show queue <span aria-hidden="true">⌄</span></button></div>
+        <div class="section-title-row"><div><span class="eyebrow">KEEP THE NIGHT GOING</span><h2>Up next <span id="queueCount" class="subtle-count">0</span></h2></div><button id="queueExplore" class="text-button">+ Discover</button><button id="mobileQueueToggle" class="mobile-queue-toggle" type="button" aria-expanded="false" aria-controls="queueList">Show queue <span aria-hidden="true">⌄</span></button></div>
         <div id="queueList" class="queue-list"><div class="empty-state">Your queue is empty. Find something good to watch next.</div></div>
       </section>
     </div>
@@ -317,6 +322,6 @@
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=27"></script>
+<script src="/app.js?v=28"></script>
 </body>
 </html>

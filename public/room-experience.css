@@ -1,0 +1,117 @@
+/* Togetherly's new room experience: genuinely invisible movie chrome,
+   one queue, and discovery-first entry when no one has selected media.
+   All rules are scoped to the watch room; landing themes are unaffected. */
+
+/* The iframe remains click-protected even when controls have faded out. */
+#watch #videoShell.website-mode .website-click-shield:not(.hidden){
+ background:transparent!important;
+ padding:8px max(8px,env(safe-area-inset-right)) max(9px,env(safe-area-inset-bottom))!important;
+}
+#watch #videoShell.website-mode .website-player.controls-visible .website-click-shield:not(.hidden){
+ background:linear-gradient(to top,rgba(0,6,15,.61),transparent 46%)!important;
+}
+#watch #videoShell .website-click-shield-message.movie-local-transport{
+ width:min(100%,420px)!important;max-width:calc(100% - 5px)!important;
+ padding:5px!important;gap:0!important;border-radius:13px!important;
+ background:rgba(8,19,32,.83)!important;
+ backdrop-filter:blur(13px);-webkit-backdrop-filter:blur(13px);
+ border:1px solid rgba(211,222,236,.26)!important;
+ box-shadow:0 10px 26px #0004!important;
+ opacity:0;transform:translateY(9px);pointer-events:none!important;
+ transition:opacity .20s ease,transform .20s ease;
+}
+#watch #videoShell .website-player.controls-visible .website-click-shield-message.movie-local-transport{
+ opacity:1;transform:translateY(0);pointer-events:auto!important;
+}
+#watch #videoShell .movie-local-buttons{
+ display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;
+ gap:4px!important;
+}
+#watch #videoShell .movie-local-button{
+ font-size:12px!important;min-width:0!important;min-height:40px!important;
+ background:transparent!important;border:0!important;color:#F2F3F4!important;
+ border-radius:9px!important;padding:5px 2px!important;
+}
+#watch #videoShell .movie-local-button:hover{background:rgba(216,231,245,.14)!important}
+#watch #videoShell #movieLocalPlay,
+#watch #videoShell #movieLocalPause{
+ background:rgba(220,178,118,.17)!important;color:#FFE5B6!important;
+}
+#watch #videoShell .movie-local-hint{
+ position:absolute!important;width:1px!important;height:1px!important;
+ margin:-1px!important;padding:0!important;border:0!important;overflow:hidden!important;
+ clip-path:inset(50%)!important;white-space:nowrap!important;
+}
+#watch #videoShell.website-mode.theater-mode .theater-dock{display:none!important}
+#watch #videoShell.website-mode.theater-mode #fullscreenToggle{display:none!important}
+#watch #videoShell.website-mode + .player-toolbar .toolbar-actions #toolbarFullscreen{
+ display:none!important;
+}
+/* The movie controls must not steal camera-tile pointer access. */
+#watch #videoShell.website-mode .call-overlay,
+#watch #videoShell.website-mode .call-bubble{z-index:25!important}
+/* When there is genuinely no selection, show Discover, never the default
+   YouTube test video or its fallback. */
+#watch.room-has-no-media #player,
+#watch.room-has-no-media #playerFallback{display:none!important}
+#watch .room-empty-state:not(.hidden){
+ display:flex!important;position:absolute;inset:0;z-index:4;
+ flex-direction:column;align-items:center;justify-content:center;
+ gap:10px;padding:18px;text-align:center;
+ background:radial-gradient(circle at 50% 25%,#233a51,#080f1a 75%);
+ color:#F1F3F4;
+}
+#watch .room-empty-state strong{font:normal clamp(21px,4vw,30px)/1.2 Georgia,serif}
+#watch .room-empty-state p{font-size:12px;color:#B6C8D7;line-height:1.4;max-width:290px;margin:0}
+#watch .room-now-playing-banner:not(.hidden){
+ display:flex;align-items:center;justify-content:space-between;gap:12px;
+ padding:10px 12px;background:rgba(151,119,82,.13);
+ border:1px solid rgba(213,173,113,.4);border-radius:12px;
+ color:var(--ivory,#F5EFE6);font-size:12px;line-height:1.4;
+}
+#watch .room-now-playing-banner button{flex:none;min-height:39px;white-space:nowrap}
+#watch .movie-queue-thumb{
+ display:grid;place-items:center;flex:0 0 60px;width:60px;height:38px;
+ border-radius:7px;border:1px solid #52627A;background:#24384A;
+ font-size:22px;
+}
+#watch #catalogQueue{
+ background:transparent;border:1px solid var(--vibe-border,#67869c);
+ color:var(--vibe-ink,#f6eee4);font-weight:750;
+}
+#watch #catalogQueue:disabled{opacity:.55;cursor:wait}
+#watch #catalogPlay,#watch #catalogQueue{min-height:44px}
+@media(min-width:861px){
+ #watch.room-discover-first .theater-main{
+  display:flex!important;flex-direction:column!important;gap:16px;
+ }
+ #watch.room-discover-first .theater-main>.source-library{order:-2}
+ #watch.room-discover-first .theater-main>.watch-stage{display:none!important}
+ #watch.room-discover-first .theater-main>.watch-queue{order:1}
+ #watch.room-discover-first .source-library{
+  display:block!important;
+  border-radius:19px;padding:clamp(20px,3vw,32px)!important;
+ }
+}
+@media(max-width:860px),(pointer:coarse) and (max-width:1050px){
+ /* Keep fixed mobile navigation in a full-height room even when the new
+    Discover-first/empty player view has very little content. */
+ #watch.watch-room{min-height:100dvh!important}
+ #watch #videoShell .website-click-shield-message.movie-local-transport{
+  width:min(100%,350px)!important;padding:4px!important;gap:0!important;
+ }
+ #watch #videoShell .movie-local-buttons{gap:2px!important}
+ #watch #videoShell .movie-local-button{
+  min-height:42px!important;font-size:11px!important;padding:6px 1px!important
+ }
+ #watch #videoShell .room-empty-state strong{font-size:22px}
+ #watch #videoShell .room-empty-state p{font-size:11px}
+ #watch #catalogQueue{width:100%!important}
+ #watch .room-now-playing-banner:not(.hidden){
+  font-size:11px;align-items:center;padding:8px;gap:8px;
+ }
+ #watch .room-now-playing-banner button{font-size:10px;min-height:40px}
+}
+@media(prefers-reduced-motion:reduce){
+ #watch #videoShell .website-click-shield-message.movie-local-transport{transition:none}
+}

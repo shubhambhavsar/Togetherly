@@ -143,6 +143,32 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 
 
 
+## Discover-first rooms, mixed watchlist and distraction-free controls
+
+- **On a genuinely empty room:** The server sends `selectedMedia: false` (rather
+  than treating its fallback YouTube ID as a selection). Phone users go straight
+  to the in-room Discover sheet; desktop users see the full discovery panel
+  before the inactive player. Watch remains reachable. Selecting any supported
+  YouTube video, movie or TV episode flips `selectedMedia` to true. Future
+  guests then enter the Watch screen, even when playback is paused.
+- **One shared Up Next:** The same room queue now accepts YouTube video IDs
+  and approved movie/episode catalogue entries. Each item is validated by the
+  server; movie URLs are reconstructed from allowlisted identifiers when played,
+  never taken from client-supplied iframe links. Episodes store season and
+  episode. The queue is available from both Discover and Watch.
+- **Cinematic player controls:** The overlaid Play/Pause, ±10-second and
+  Togetherly Theater buttons hide after 3.2 seconds of activity-free playback.
+  A click/tap on the protected movie surface reveals them; another tap hides
+  them. Pausing pins controls in view. On hover-capable devices moving the
+  mouse reveals them; keyboard focus does too. The iframe never receives taps,
+  even while the controls are invisible. The separate fullscreen control is
+  hidden in movie mode, but YouTube retains its usual controls.
+- **Existing limitations:** VidFast playback may ignore messages or rebuffer on
+  reload; the movie room clock is approximate. The externally hosted iframe
+  remains unsandboxed for compatibility and may still create script-initiated
+  tabs or display ads without any direct clicks. Camera permissions, the 2-seat
+  limit and chat stay unchanged.
+
 ## Dual themes and automatic video-call recovery (review branch)
 
 Togetherly supports two visual experiences via a header switcher: **Private

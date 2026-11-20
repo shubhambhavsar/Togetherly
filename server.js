@@ -355,7 +355,7 @@ const roomMovieTimeline=r=>{
   playing:t.playing,version:r.version,receivedAt:now,
   origin:t.origin||'estimated'};
 };
-const state=r=>({source:r.source||'youtube',websiteUrl:r.websiteUrl||'',video:r.video,
+const state=r=>({source:r.source||'youtube',selectedMedia:Boolean(r.selectedMedia),websiteUrl:r.websiteUrl||'',video:r.video,
  playing:r.source==='website'?false:r.playing,
  position:r.position+(r.playing&&r.source!=='website'?(Date.now()-r.at)/1000:0),
  version:r.version,catalog:r.catalog||null,websiteLeader:r.websiteLeader||null,
@@ -363,7 +363,7 @@ const state=r=>({source:r.source||'youtube',websiteUrl:r.websiteUrl||'',video:r.
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
 const callMembers=r=>[...r.callUsers].map(([id,meta])=>({id,role:meta.role,sharing:!!meta.sharing}));
 const publishCall=r=>io.to(r.id).emit('call:members',callMembers(r));
-function newRoom(id){return {id,users:new Map(),websiteLeader:null,websiteTimeline:null,movieTimeline:null,catalog:null,source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
+function newRoom(id){return {id,users:new Map(),websiteLeader:null,websiteTimeline:null,movieTimeline:null,catalog:null,selectedMedia:false,source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
 setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
 
 function leaveCall(s) {
@@ -387,7 +387,7 @@ s.on('room:rename',(d,ack)=>{
  r.users.set(s.id,newName);io.to(r.id).emit('members',members(r));
  ack?.({ok:true});
 });
-s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.movieTimeline=null;r.catalog=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.movieTimeline=null;r.catalog=null;r.selectedMedia=true;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
 // The old unrestricted website-sharing socket event remains reject-only for older clients.
 s.on('website',(_d,ack)=>{
@@ -415,7 +415,7 @@ s.on('catalog:play',async(d,ack)=>{
  if(roomOf(s)!==r)return ack?.({error:'Room connection changed. Please try again.'});
  if(r.version!==requestedVersion)
   return ack?.({error:'Someone changed the room playback while the episode was being checked. Please try again.'});
- r.source='website';r.websiteUrl=choice.url;r.websiteTimeline=null;
+ r.source='website';r.selectedMedia=true;r.websiteUrl=choice.url;r.websiteTimeline=null;
  r.catalog={type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
    label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})};
  r.playing=false;r.position=0;r.at=Date.now();r.version++;
@@ -437,19 +437,60 @@ s.on('discover:search',async(d,ack)=>{
  if(rate.count>12)return ack({error:'Search limit reached. Please try later.'});
  try{ack({items:await searchYouTube(q)})}catch(e){ack({error:e.message})}
 });
-s.on('queue:add',(d,ack)=>{
+s.on('queue:add',async(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
- const id=getVideo(d?.url);if(!id)return ack?.({error:'Enter a valid YouTube video'});
  if(r.queue.length>=20)return ack?.({error:'The queue is full'});
- const title=typeof d.title==='string'?d.title.trim().replace(/[\u0000-\u001f<>]/g,'').slice(0,140):'';
- const item={id:randomBytes(6).toString('hex'),video:id,title:title||'YouTube video',addedBy:r.users.get(s.id)};
- r.queue.push(item);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true});
+ const title=typeof d?.title==='string'?d.title.trim().replace(/[\u0000-\u001f<>]/g,'').slice(0,140):'';
+ let item;
+ if(d?.catalog!==undefined){
+  const choice=catalogPlayer(d.catalog);
+  if(!choice)return ack?.({error:'Select a supported movie or TV episode'});
+  // Revalidate episode bounds before storing a playable catalogue entry.
+  if(choice.type==='tv'){
+   try{
+    const seasons=await catalogTvSeasons(choice.id);
+    if(seasons!==null){
+     const match=seasons.find(x=>x.season===choice.season);
+     if(!match||choice.episode>match.episodes)
+      return ack?.({error:'That season or episode is unavailable'});
+    }
+   }catch{return ack?.({error:'Unable to verify this episode. Try again.'})}
+  }
+  if(roomOf(s)!==r)return ack?.({error:'Room connection changed'});
+  if(r.queue.length>=20)return ack?.({error:'The queue is full'});
+  item={id:randomBytes(6).toString('hex'),source:'website',title:choice.title,
+   catalog:{type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
+    label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})},
+   addedBy:r.users.get(s.id)};
+ }else{
+  const id=getVideo(d?.url);if(!id)return ack?.({error:'Enter a valid YouTube video'});
+  item={id:randomBytes(6).toString('hex'),source:'youtube',video:id,
+   title:title||'YouTube video',addedBy:r.users.get(s.id)};
+ }
+ r.queue.push(item);io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true,item});
 });
 s.on('queue:play',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
- const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Video not found in queue'});
- const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.movieTimeline=null;r.catalog=null;r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
- io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
+ const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Title not found in queue'});
+ const item=r.queue[i];
+ if(item.source==='website'){
+  // Generate URL from validated, server-owned metadata rather than trusting
+  // an item-supplied third-party address.
+  const choice=catalogPlayer(item.catalog);
+  if(!choice)return ack?.({error:'This movie source is unavailable'});
+  r.queue.splice(i,1);r.source='website';r.selectedMedia=true;
+  r.websiteUrl=choice.url;r.websiteTimeline=null;
+  r.catalog={type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
+   label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})};
+  r.playing=false;r.position=0;r.at=Date.now();r.version++;
+  r.movieTimeline={position:0,playing:true,at:Date.now(),origin:'estimated'};
+ }else if(item.source==='youtube'&&getVideo(item.video)===item.video){
+  r.queue.splice(i,1);r.source='youtube';r.selectedMedia=true;r.websiteUrl='';
+  r.websiteTimeline=null;r.movieTimeline=null;r.catalog=null;r.video=item.video;
+  r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ }else return ack?.({error:'This queued video is unavailable'});
+ io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);
+ ack?.({ok:true,source:r.source});
 });
 s.on('queue:remove',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Not in room'});

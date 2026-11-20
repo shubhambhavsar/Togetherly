@@ -21,7 +21,9 @@ function nickname(){return $('name').value.trim().slice(0,25)}
 function saveName(n){currentName=n;$('name').value=n;try{localStorage.setItem('togetherly.nickname',n)}catch{}}
 function requireName(){const n=nickname();if(!n){toast('Enter your name before joining');$('name').focus();return null}saveName(n);return n}
 $('rename').onclick=()=>{if(!room)return;const v=prompt('What name should others see?',currentName||nickname());if(v===null)return;const n=v.trim().slice(0,25);if(!n)return toast('Name cannot be empty');socket.emit('room:rename',{name:n},result=>{if(result?.ok){saveName(n);toast('Name updated')}else toast(result?.error||'Could not update name')})};
-function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').hidden=true;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();applyState(d.state);initPlayer();startSpectatorView()}
+function setupRoom(d){saveName(nickname());room=d.id;me=socket.id;participants=d.members||[];callMembers=d.callMembers||[];roomQueue=d.queue||[];renderQueue();lastState=d.state;version=d.state.version;$('landing').hidden=true;$('landing').style.display='none';$('watch').style.display='block';history.replaceState({},'', '/room/'+room);showMembers();$('chat').replaceChildren();displayedChatIds.clear();(d.messages||[]).forEach(m=>addMessage(m,false));updateChatConnection();applyState(d.state);initPlayer();startSpectatorView();
+ if(!d.state?.selectedMedia&&mobileIsCompact())mobileShowSheet('choose');
+}
 function create(){const n=requireName();if(!n)return;socket.emit('create',{name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 function join(){const n=requireName();if(!n)return;socket.emit('join',{id:roomFromPath||room,name:n},d=>{if(d?.error)return toast(d.error);if(d)setupRoom(d)})}
 $('create').onclick=create;$('join').onclick=join;
@@ -87,23 +89,35 @@ function humanTitle(text){
 function renderQueue(){
  $('queueCount').textContent=String(roomQueue.length);
  const parent=$('queueList');parent.replaceChildren();
- if(!roomQueue.length){const empty=document.createElement('div');empty.className='empty-state';empty.textContent='Nothing queued yet. Start a watch list for tonight.';parent.append(empty);return}
+ if(!roomQueue.length){const empty=document.createElement('div');empty.className='empty-state';empty.textContent='Nothing queued yet. Add a movie, episode or YouTube video from Discover.';parent.append(empty);return}
  roomQueue.forEach((item,index)=>{
   const row=document.createElement('div');row.className='queue-item';
   const count=document.createElement('span');count.className='queue-number';count.textContent=String(index+1).padStart(2,'0');
   const info=document.createElement('div');info.className='queue-info';
   const title=document.createElement('div');title.className='queue-title';
-  title.textContent=humanTitle(item.title)||'YouTube video';title.title=title.textContent;
-  const by=document.createElement('div');by.className='queue-sub';by.textContent='Added by '+clip(item.addedBy,25);
+  title.textContent=humanTitle(item.title)||(item.source==='website'?'Movie or episode':'YouTube video');title.title=title.textContent;
+  const by=document.createElement('div');by.className='queue-sub';
+  const kind=item.source==='website'?
+   (item.catalog?.type==='tv'?'Series · S'+item.catalog.season+' E'+item.catalog.episode:'Movie'):
+   'YouTube';
+  by.textContent=kind+' · Added by '+clip(item.addedBy,25);
   info.append(title,by);
-  const play=document.createElement('button');play.className='secondary-button small';play.textContent='Play';
-  play.onclick=()=>socket.emit('queue:play',{id:item.id},res=>{if(res?.error)toast(res.error)});
+  const play=document.createElement('button');play.className='secondary-button small';play.textContent='Watch';
+  play.setAttribute('aria-label','Watch '+title.textContent+' with the room');
+  play.onclick=()=>socket.emit('queue:play',{id:item.id},res=>{
+   if(res?.error)return toast(res.error);
+   if(mobileIsCompact())mobileClosePanels();
+  });
   const remove=document.createElement('button');remove.className='text-button';remove.title='Remove from queue';remove.setAttribute('aria-label','Remove '+clip(item.title)+' from queue');remove.textContent='✕';
   remove.onclick=()=>socket.emit('queue:remove',{id:item.id},res=>{if(res?.error)toast(res.error)});
-  if(/^[\w-]{11}$/.test(item.video||'')){
-   const thumb=document.createElement('img');thumb.className='queue-thumb';thumb.src=youtubeThumbnail(item.video);thumb.alt='';thumb.loading='lazy';row.append(count,thumb,info,play,remove)
-  }else row.append(count,info,play,remove);
-  parent.append(row)
+  if(item.source==='youtube'&&/^[\\w-]{11}$/.test(item.video||'')){
+   const thumb=document.createElement('img');thumb.className='queue-thumb';thumb.src=youtubeThumbnail(item.video);thumb.alt='';thumb.loading='lazy';row.append(count,thumb,info,play,remove);
+  }else{
+   const thumb=document.createElement('span');thumb.className='queue-thumb movie-queue-thumb';
+   thumb.textContent=item.catalog?.type==='tv'?'▣':'🎬';
+   thumb.setAttribute('aria-hidden','true');row.append(count,thumb,info,play,remove);
+  }
+  parent.append(row);
  })
 }
 function getRecents(){try{return JSON.parse(localStorage.getItem('togetherly.recents')||'[]').filter(x=>/^[\w-]{11}$/.test(x.id)).slice(0,10)}catch{return []}}
@@ -148,7 +162,14 @@ async function openExplore(){
 function closeExplore(){
  $('discoverModal').classList.add('hidden');document.body.classList.remove('modal-lock');
 }
-$('openExplore').onclick=openExplore;$('queueExplore').onclick=openExplore;
+$('openExplore').onclick=openExplore;
+$('queueExplore').onclick=()=>{
+ if(mobileIsCompact())mobileShowSheet('choose');
+ else{
+  setSourceTab('movies');
+  $('mobilePickerPanel').scrollIntoView({behavior:'smooth',block:'start'});
+ }
+};
 $('closeExplore').onclick=closeExplore;$('discoverScrim').onclick=closeExplore;
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('discoverModal').classList.contains('hidden'))closeExplore()});
 function updateBrowseUrl(q){$('openYouTubeSearch').href='https://www.youtube.com/results?search_query='+encodeURIComponent(q||'full movie official')}
@@ -262,6 +283,8 @@ function updateTheaterUI(){
  document.body.classList.toggle('theater-lock',active);
  $('fullscreenToggle').setAttribute('aria-pressed',String(active));
  $('fullscreenToggle').setAttribute('aria-label',active?'Exit watch fullscreen':'Enter watch fullscreen');
+ $('movieLocalFullscreen').setAttribute('aria-label',active?'Minimize Togetherly Theater':'Enter Togetherly Theater fullscreen');
+ $('movieLocalFullscreen').textContent=active?'⤢':'⛶';
  $('toolbarFullscreen').setAttribute('aria-pressed',String(active));
  $('theaterLabel').textContent=active?'Exit fullscreen':'Fullscreen';
  if(active&&chatOpen)toggleChat(false);
@@ -375,10 +398,34 @@ function mobileShowSheet(name){
  else if(next==='people')$('mobileClosePeople').focus({preventScroll:true});
  else if(!next)mobileClosePanels(false);
 }
-$('mobileNavWatch').onclick=()=>{
+function updateRoomEntryView(state){
+ const selected=Boolean(state?.selectedMedia);
+ const watch=$('watch');
+ watch.classList.toggle('room-has-no-media',!selected);
+ // Desktop puts Discovery ahead of the inactive video stage; on touch
+ // devices the native Discover sheet serves as the first screen.
+ const discoveryFirst=!selected&&!mobileIsCompact();
+ watch.classList.toggle('room-discover-first',discoveryFirst);
+ $('roomEmptyState').classList.toggle('hidden',selected);
+ const banner=$('roomNowPlayingBanner');
+ banner.classList.toggle('hidden',!selected);
+ if(selected){
+  $('roomNowPlayingText').textContent=state?.source==='website'&&state.catalog?
+   state.catalog.title+(state.catalog.type==='tv'?' · S'+state.catalog.season+' E'+state.catalog.episode:'')+' is ready to watch':
+   'A YouTube video is ready to watch';
+ }
+}
+function goToRoomWatch(){
+ if(!mobileIsCompact())$('watch').classList.remove('room-discover-first');
  mobileClosePanels();
  $('videoShell').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth',block:'start'});
+}
+$('roomNowPlayingWatch').onclick=goToRoomWatch;
+$('roomEmptyDiscover').onclick=()=>{
+ if(mobileIsCompact())mobileShowSheet('choose');
+ else{ $('watch').classList.add('room-discover-first');$('mobilePickerPanel').scrollIntoView({block:'start',behavior:'smooth'}); }
 };
+$('mobileNavWatch').onclick=goToRoomWatch;
 $('mobileNavChoose').onclick=()=>mobileShowSheet('choose');
 $('mobileNavPeople').onclick=()=>mobileShowSheet('people');
 $('mobileNavChat').onclick=async()=>{
@@ -635,6 +682,34 @@ $('catalogSeason').addEventListener('input',()=>{
  catalogUpdateEpisodeGuide();
 });
 $('catalogEpisode').addEventListener('input',catalogUpdateEpisodeGuide);
+// Use the same validated title/episode selection for both queueing and
+// immediate room playback; the server regenerates approved source URLs.
+$('catalogQueue').onclick=()=>{
+ if(!room)return toast('Join a room first');
+ const type=$('catalogType').value,id=Number($('catalogId').value);
+ if(!catalogChoice||catalogChoice.id!==id||catalogChoice.type!==type)
+  return toast('Choose a movie or series first');
+ const season=Number($('catalogSeason').value),episode=Number($('catalogEpisode').value);
+ if(type==='tv'){
+  if(catalogEpisodeLoading)return toast('Wait for episode details');
+  const known=Array.isArray(catalogEpisodeCounts)?
+   catalogEpisodeCounts.find(x=>x.season===season):null;
+  if(!Number.isSafeInteger(season)||season<1||season>99||
+   !Number.isSafeInteger(episode)||episode<1||episode>999||
+   (Array.isArray(catalogEpisodeCounts)&&(!known||episode>known.episodes)))
+   return toast('Choose an available season and episode');
+ }
+ const button=$('catalogQueue');
+ button.disabled=true;button.textContent='Adding…';
+ socket.timeout(9000).emit('queue:add',{catalog:{
+  type,id,season,episode,provider:$('catalogProvider').value,title:catalogChoice.title
+ }},(error,ack)=>{
+  button.disabled=false;button.textContent='+ Add to Queue';
+  if(error||!ack?.ok)return toast(ack?.error||'Could not add this title');
+  toast('Added to Up Next · '+catalogChoice.title);
+ });
+};
+
 $('catalogPlayForm').onsubmit=event=>{
  event.preventDefault();
  if(!room)return toast('Join a room before sharing a movie');
@@ -731,6 +806,28 @@ let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false;
 // never receives click/touch input, including during Play/Pause/Seek. The
 // cross-origin source stays unsandboxed for compatibility: scripted popups and
 // redirects remain possible, and native playback commands may be unsupported.
+// Movie-area clicks reveal a compact Togetherly toolbar but never reach the
+// unsandboxed iframe. The invisible shield stays active while controls fade.
+const MOVIE_CONTROLS_IDLE_MS=3200;
+let movieControlsVisible=true,movieControlsHideTimer=null;
+function showMovieControls(){
+ movieControlsVisible=true;
+ $('websitePlayer').classList.add('controls-visible');
+ if(movieControlsHideTimer)clearTimeout(movieControlsHideTimer);
+ movieControlsHideTimer=null;
+ if(!movieLocalPaused)movieControlsHideTimer=setTimeout(()=>{
+  if(movieLocalPaused||!websiteSelectedUrl)return;
+  movieControlsVisible=false;
+  $('websitePlayer').classList.remove('controls-visible');
+ },MOVIE_CONTROLS_IDLE_MS);
+}
+function hideMovieControls(){
+ if(movieLocalPaused)return;
+ if(movieControlsHideTimer)clearTimeout(movieControlsHideTimer);
+ movieControlsHideTimer=null;
+ movieControlsVisible=false;
+ $('websitePlayer').classList.remove('controls-visible');
+}
 let movieLocalPaused=false,movieLocalPausedAt=0;
 let movieLocalExpectedStart=0,movieLocalStartAt=0;
 let movieLocalFeedback='Playback requested. Player status is unverified.';
@@ -752,6 +849,11 @@ function setWebsiteClickGuard(){
   ($('websiteFrame').hasAttribute('src')||movieLocalPaused));
  $('websitePlayer').classList.toggle('click-protected',active);
  $('websiteClickShield').classList.toggle('hidden',!active);
+ $('websitePlayer').classList.toggle('controls-visible',active&&(movieControlsVisible||movieLocalPaused));
+ if(!active){
+  if(movieControlsHideTimer)clearTimeout(movieControlsHideTimer);
+  movieControlsHideTimer=null;
+ }
  $('movieLocalPlay').disabled=!active;
  $('movieLocalPause').disabled=!active||movieLocalPaused;
  $('movieLocalBack').disabled=!active;
@@ -768,6 +870,7 @@ function movieLocalReload(position){
  websiteSelectedVersion=lastState.version;
  updateWebsitePlayerActions(websiteSelectedUrl);
  movieLocalStatus('Playback requested near '+moviePositionText(at)+'. Waiting for player confirmation.');
+ showMovieControls();
  return true;
 }
 function movieLocalPlay(){
@@ -805,7 +908,7 @@ function movieLocalPause(){
  // postMessage. This is a hard pause, not native HTMLMediaElement.pause().
  unloadWebsiteFrame();
  movieLocalStatus('Paused near '+moviePositionText(at)+'. Resume reloads the player.');
- setWebsiteClickGuard();
+ showMovieControls();setWebsiteClickGuard();
  if(movieIsHost())movieSendControl('pause',at);
 }
 function movieLocalSkip(delta){
@@ -815,7 +918,7 @@ function movieLocalSkip(delta){
  if(movieLocalPaused){
   movieLocalPausedAt=at;
   movieLocalStatus('Paused near '+moviePositionText(at)+'. Resume to play from here.');
-  setWebsiteClickGuard();
+  showMovieControls();setWebsiteClickGuard();
  }else if(movieFrameEventsSeen&&moviePostCommand('seek',at)){
   movieLocalStatus('Seek requested near '+moviePositionText(at)+'. Waiting for confirmation.');
   const currentToken=movieLocalCommandToken;
@@ -828,11 +931,26 @@ function movieLocalSkip(delta){
  }else movieLocalReload(at);
  if(movieIsHost())movieSendControl('seek',at);
 }
-$('movieLocalPlay').onclick=event=>{event.stopPropagation();movieLocalPlay()};
-$('movieLocalPause').onclick=event=>{event.stopPropagation();movieLocalPause()};
-$('movieLocalBack').onclick=event=>{event.stopPropagation();movieLocalSkip(-10)};
-$('movieLocalForward').onclick=event=>{event.stopPropagation();movieLocalSkip(10)};
-$('websiteClickShield').onclick=()=>toast('Movie taps are locked. Use Togetherly playback controls below.');
+$('movieLocalPlay').onclick=event=>{event.stopPropagation();movieLocalPlay();showMovieControls()};
+$('movieLocalPause').onclick=event=>{event.stopPropagation();movieLocalPause();showMovieControls()};
+$('movieLocalBack').onclick=event=>{event.stopPropagation();movieLocalSkip(-10);showMovieControls()};
+$('movieLocalForward').onclick=event=>{event.stopPropagation();movieLocalSkip(10);showMovieControls()};
+$('movieLocalFullscreen').onclick=async event=>{
+ event.stopPropagation();
+ await toggleTheater();
+ showMovieControls();
+};
+$('websiteClickShield').onclick=event=>{
+ if(event.target.closest('button'))return;
+ // A pointermove often fires immediately before a tap (especially in
+ // automated Chromium and hybrid touch laptops). Always reveal on tap;
+ // idle timeout hides controls, never an accidental immediate toggle.
+ showMovieControls();
+};
+$('websiteClickShield').addEventListener('pointermove',event=>{
+ if(event.pointerType==='mouse'&&websiteSelectedUrl)showMovieControls();
+});
+$('websiteClickShield').addEventListener('focusin',showMovieControls);
 
 let websiteSelectedVersion=null,movieSnapshot=null,movieSnapshotAt=0;
 let movieFrameEventsSeen=false,movieFrameLastProgress=null,movieFrameLastProgressAt=0;
@@ -1040,7 +1158,7 @@ function loadWebsiteFrame(url,compatibilityMode=false){
  movieLocalPaused=false;
  frame.setAttribute('src',url);
  movieLocalStatus('Playback requested near '+moviePositionText(movieLocalExpectedStart)+'. Player status unverified.');
- setWebsiteClickGuard();
+ showMovieControls();setWebsiteClickGuard();
 }
 function updateWebsitePlayerActions(url){
  const stopped=Boolean(url&&websiteStoppedFor===url);
@@ -1091,6 +1209,7 @@ $('websiteResume').onclick=()=>{
 };
 function applyState(s){
  if(!s)return;
+ updateRoomEntryView(s);
  const old=lastState;
  lastState=s;version=s.version;
  movieSnapshot=null;movieSnapshotAt=0;

@@ -414,7 +414,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=27')&&html.includes('/website-player.css?v=10'));
+ assert.ok(html.includes('/app.js?v=28')&&html.includes('/website-player.css?v=11'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -482,7 +482,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=10')&&html.includes('/app.js?v=27'));
+ assert.ok(html.includes('/website-player.css?v=11')&&html.includes('/app.js?v=28'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -1062,7 +1062,7 @@ test('mobile movie finder has a dedicated responsive detail step',()=>{
  for(const id of ['catalogResultHeading','catalogResultCount','catalogSelectedPoster',
   'catalogSelectedDescription','catalogShareFeedback','catalogChangeTitle'])
   assert.ok(html.includes('id="'+id+'"'));
- assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=27'));
+ assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=28'));
  assert.ok(css.includes('.sr-only{')&&css.includes('clip-path:inset(50%)'));
  assert.ok(css.includes('grid-template-columns:minmax(0,1fr) 77px'),'Find action must stay beside input');
  assert.ok(css.includes('#watch #movieCatalog.is-title-selected #catalogResults'));
@@ -1244,8 +1244,8 @@ test('Togetherly movie uses permanent click protection with owned transport cont
   'movieLocalForward','movieLocalStatus'])assert.ok(html.includes('id="'+id+'"'),'Missing '+id);
  assert.ok(!html.includes('id="websiteUnlock"'));
  assert.ok(!html.includes('id="websiteInteractionToggle"'));
- assert.ok(html.includes('/website-player.css?v=10'));
- assert.ok(html.includes('/app.js?v=27'));
+ assert.ok(html.includes('/website-player.css?v=11'));
+ assert.ok(html.includes('/app.js?v=28'));
  assert.ok(frontend.includes('function movieLocalPause()'));
  assert.ok(frontend.includes('function movieLocalPlay()'));
  assert.ok(frontend.includes('function movieLocalSkip(delta)'));
@@ -1261,7 +1261,7 @@ test('Togetherly movie uses permanent click protection with owned transport cont
 });
 
 test('Togetherly hard pause stops the iframe, preserves local position and resumes without exposing clicks',()=>{
- const start=frontend.indexOf('let movieLocalPaused=false');
+ const start=frontend.indexOf('const MOVIE_CONTROLS_IDLE_MS=3200;');
  const end=frontend.indexOf('let websiteSelectedVersion=',start);
  assert.ok(start>0&&end>start,'Transport module missing');
  const source=frontend.slice(start,end),nodes=new Map(),calls=[],sent=[],timers=[];
@@ -1271,7 +1271,8 @@ test('Togetherly hard pause stops the iframe, preserves local position and resum
    const flags=new Set(['hidden']),attrs={};
    nodes.set(id,{attrs,flags,disabled:false,textContent:'',onclick:null,
     hasAttribute:k=>id==='websiteFrame'&&k==='src'&&Boolean(src),
-    classList:{toggle:(c,v)=>v?flags.add(c):flags.delete(c),contains:c=>flags.has(c)},
+    classList:{toggle:(c,v)=>v?flags.add(c):flags.delete(c),contains:c=>flags.has(c),add:c=>flags.add(c),remove:c=>flags.delete(c)},
+    addEventListener:()=>{},
     setAttribute:(k,v)=>attrs[k]=v,
     getAttribute:k=>attrs[k]});
   }
@@ -1297,6 +1298,7 @@ test('Togetherly hard pause stops the iframe, preserves local position and resum
   unloadWebsiteFrame:()=>{src='';calls.push(['unload']);context.guard()},
   toast:()=>{},
   setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length},
+  clearTimeout:()=>{},
   console
  };
  vm.runInNewContext(source+'\nthis.guard=setWebsiteClickGuard;this.localPause=movieLocalPause;this.localPlay=movieLocalPlay;this.localSkip=movieLocalSkip;this.seed=(p,t)=>{movieLocalExpectedStart=p;movieLocalStartAt=t};this.isPaused=()=>movieLocalPaused;',context);
@@ -1335,4 +1337,96 @@ test('movie pause survives room updates and never claims universal native iframe
  assert.ok(frontend.includes('movieLocalPaused=false;++movieLocalCommandToken;'));
  assert.ok(backend.includes('fullscreen=(self)'));
  assert.ok(html.includes('id="callOverlay"'));
+});
+
+test('mixed queue supports validated YouTube videos, films and episodes and opens the correct source',async()=>{
+ let connect;const sent=[];
+ class FakeIO{on(event,fn){if(event==='connection')connect=fn}
+  to(room){return{emit:(event,data)=>sent.push({room,event,data})}}}
+ const app=()=>({disable(){},use(){},get(){}});app.static=()=>()=>{};
+ let serial=1;
+ const fakeRequire=id=>id==='express'?app:id==='http'?{createServer:()=>({listen(){}})}:
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=>String(serial++).padStart(n*2,'0')})}:
+  id==='path'?{join:(...parts)=>parts.join('/')}:require(id);
+ vm.runInNewContext(backend,{require:fakeRequire,URL:require('node:url').URL,
+  process:{env:{PORT:'3000'}},__dirname:'/app',console,
+  setInterval:()=>({unref(){}})},{filename:'server.js'});
+ function client(id){
+  const handlers={},sock={id,data:{},on:(event,fn)=>handlers[event]=fn,
+   join(){},leave(){},to:()=>({emit(){}}),emit(){}};
+  connect(sock);
+  return {ask:(ev,d)=>new Promise(resolve=>handlers[ev](d,resolve))};
+ }
+ const host=client('host'),guest=client('guest');
+ const room=await host.ask('create',{name:'Host'});
+ assert.equal(room.state.selectedMedia,false,'Brand-new rooms have no selected media');
+ const joined=await guest.ask('join',{id:room.id,name:'Guest'});
+ assert.equal(joined.state.selectedMedia,false);
+ const blocked=await guest.ask('queue:add',{catalog:{provider:'untrusted',type:'movie',id:550}});
+ assert.match(blocked.error,/supported movie/i);
+ const youtube=await host.ask('queue:add',{url:'M7lc1UVf-VE',title:'One YouTube video'});
+ const movie=await guest.ask('queue:add',{catalog:{provider:'vidfast',type:'movie',id:550,title:'Fight Club'}});
+ const tv=await host.ask('queue:add',{catalog:{provider:'vidfast',type:'tv',id:1399,season:2,episode:3,title:'Series'}});
+ assert.ok(youtube.ok&&movie.ok&&tv.ok);
+ const list=sent.filter(x=>x.event==='queue:update').at(-1).data.map(item=>({...item}));
+ assert.equal(list.length,3);
+ assert.deepEqual(Array.from(list.map(x=>x.source)),['youtube','website','website']);
+ assert.equal(list[2].catalog.season,2);
+ assert.equal(list[2].catalog.episode,3);
+ assert.equal(list[1].catalog.provider,'vidfast');
+ assert.ok(!Object.hasOwn(list[1],'websiteUrl'),'Queue must not take arbitrary provider addresses');
+ assert.equal((await guest.ask('queue:play',{id:list[1].id})).source,'website');
+ const playingMovie=sent.filter(x=>x.event==='state').at(-1).data;
+ assert.equal(playingMovie.websiteUrl,'https://vidfast.vc/movie/550');
+ assert.equal(playingMovie.selectedMedia,true);
+ assert.equal(playingMovie.catalog.title,'Fight Club');
+ assert.equal(playingMovie.movieTimeline.playing,true);
+ const lateGuest=client('lateGuest');
+ const later=await lateGuest.ask('join',{id:room.id,name:'Late Guest'});
+ assert.equal(later.state.selectedMedia,true,'Late guests must see selected content');
+ assert.equal((await host.ask('queue:play',{id:list[2].id})).source,'website');
+ const episode=sent.filter(x=>x.event==='state').at(-1).data;
+ assert.equal(episode.websiteUrl,'https://vidfast.vc/tv/1399/2/3');
+ assert.equal((await host.ask('queue:play',{id:list[0].id})).source,'youtube');
+ const yt=sent.filter(x=>x.event==='state').at(-1).data;
+ assert.equal(yt.selectedMedia,true);
+ assert.equal(yt.catalog,null);
+ assert.equal(yt.video,'M7lc1UVf-VE');
+ const empty=sent.filter(x=>x.event==='queue:update').at(-1).data;
+ assert.equal(empty.length,0,'Queue removals should be broadcast');
+ assert.match((await guest.ask('queue:play',{id:'does-not-exist'})).error,/not found/i);
+});
+test('empty rooms prefer Discover and selected-media rooms keep Watch even when paused',()=>{
+ const css=fs.readFileSync(path.join(root,'public/room-experience.css'),'utf8');
+ assert.ok(backend.includes("selectedMedia:false"),'Room starts with no selected content');
+ assert.ok(backend.includes('selectedMedia:Boolean(r.selectedMedia)'));
+ assert.ok(backend.includes("r.selectedMedia=true"));
+ assert.ok(frontend.includes("if(!d.state?.selectedMedia&&mobileIsCompact())mobileShowSheet('choose')"));
+ assert.ok(frontend.includes("const selected=Boolean(state?.selectedMedia)"));
+ assert.ok(frontend.includes("watch.classList.toggle('room-discover-first',discoveryFirst)"));
+ assert.ok(frontend.includes("if(selected){"));
+ assert.ok(html.includes('id="roomEmptyState"'));
+ assert.ok(html.includes('id="roomNowPlayingBanner"'));
+ assert.ok(html.includes('id="roomNowPlayingWatch"'));
+ assert.ok(html.includes('id="catalogQueue"'));
+ assert.ok(css.includes('#watch.room-discover-first .theater-main'));
+ assert.ok(css.includes('#watch.room-discover-first .theater-main>.watch-stage{display:none!important}'));
+ assert.ok(css.includes('#watch.room-has-no-media #player'));
+});
+test('compact overlaid movie controls remain protected, auto-hide, and combine fullscreen',()=>{
+ const css=fs.readFileSync(path.join(root,'public/room-experience.css'),'utf8');
+ assert.ok(html.includes('id="movieLocalFullscreen"'));
+ assert.ok(html.includes('room-experience.css?v=1'));
+ assert.ok(frontend.includes('const MOVIE_CONTROLS_IDLE_MS=3200'));
+ assert.ok(frontend.includes("if(event.target.closest('button'))return;"));
+ assert.ok(frontend.includes("showMovieControls();\n};\n$('websiteClickShield').addEventListener('pointermove'"));
+ assert.ok(frontend.includes("event.pointerType==='mouse'"));
+ assert.ok(frontend.includes('if(movieLocalPaused)return'));
+ assert.ok(frontend.includes("await toggleTheater()"));
+ assert.ok(css.includes('grid-template-columns:repeat(5,minmax(0,1fr))'));
+ assert.ok(css.includes('.movie-local-transport{')||css.includes('.movie-local-transport{'));
+ assert.ok(css.includes('opacity:0;transform:translateY(9px);pointer-events:none!important'));
+ assert.ok(css.includes('#videoShell.website-mode.theater-mode .theater-dock{display:none!important}'));
+ assert.ok(css.includes('#videoShell.website-mode + .player-toolbar .toolbar-actions #toolbarFullscreen'));
+ assert.ok(css.includes('#videoShell .movie-local-hint{'));
 });
