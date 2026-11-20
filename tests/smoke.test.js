@@ -518,7 +518,7 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
 });
 
 test('unverified sources are not called safe and no antivirus bypass is attempted',()=>{
- assert.ok(html.includes('Unverified player. Never bypass an antivirus warning.'));
+ assert.ok(html.includes('External player compatibility is enabled. It may open ads or new tabs. Never bypass an antivirus warning.'));
  assert.ok(!html.includes('option value="vidsrc"')&&!html.includes('option value="vidlove"'));
  assert.ok(!html.includes('id="openWebsite"'));
  assert.ok(!frontend.includes("window.confirm(message)"));
@@ -869,7 +869,7 @@ test('movie time formatting and VidFast join URL preserve exact canonical source
   'https://vidfast.vc/tv/1399/1/2');
  assert.ok(frontend.includes('websiteSelectedVersion!==s.version'),
   'New movie selection must reload even when sharing the same URL');
- assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline))'));
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true)'));
  assert.ok(frontend.includes('movieCatchupNow()'));
 });
 
