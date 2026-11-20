@@ -143,6 +143,31 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 
 
 
+## Cinema room refresh (review branch; not deployed)
+
+The room now has a **Movies & Series / YouTube** switcher under the shared player.
+The old arbitrary Website Player input, FlexFlix recommendation and experimental
+movie-sync panel are removed from the interface. Browsers still support room chat,
+camera seats and fully synced **YouTube** playback. Movie-source playback remains
+**independent per viewer**, not cross-browser synchronized.
+
+When a viewer selects a title in Movies & Series, the existing room server generates
+a source-specific URL. The browser removes iframe sandbox attributes **only** when
+the URL exactly matches a server-defined VidSrc, Vidfast or Vidlove source adapter;
+older arbitrary website links stay sandboxed. No compatibility confirmation click
+is needed for these exact catalogue sources. A compact **Stop player** button
+unloads the iframe without disconnecting chat or cameras.
+
+Security limits: Streambert's Electron app blocks ads/trackers via its privileged
+`session.webRequest` API and denies popups with `setWindowOpenHandler`. An ordinary
+hosted website like Togetherly cannot intercept requests or window creation inside
+cross-origin provider frames. Togetherly adds a parent-side CSP direct-frame
+allowlist, no-referrer links and a best-effort beforeunload warning, **not** a
+complete ad blocker. Unrestricted movie frames may still show ads, popups or
+redirects, and a provider may refuse framing with its own CSP/X-Frame-Options.
+Never enter credentials in third-party players. Browser-level ad and tracker
+protection is recommended. No licensing, playback, or synchronization guarantees.
+
 ## Movie & Series source picker (deployed baseline)
 
 The **Movies & Series** section follows the general source-adapter pattern in [Streambert](https://github.com/truelockmc/streambert/blob/main/src/utils/api.js), independently implemented without copying GPL program code. It generates experimental third-party player addresses from an internal movie identifier and shares them with room members. It does **not** retrieve copyrighted streams, inspect player internals, synchronize external providers, or grant playback rights.
