@@ -775,9 +775,9 @@ function movieLocalPlay(){
     websiteStoppedFor===websiteSelectedUrl)return;
  const wasPaused=movieLocalPaused;
  const at=wasPaused?movieLocalPausedAt:movieLocalCurrentTime();
- if(!wasPaused&&$('websiteFrame').hasAttribute('src')&&movieFrameEventsSeen){
+ if(!wasPaused&&$('websiteFrame').hasAttribute('src')){
   const currentToken=++movieLocalCommandToken;
-  if(moviePostCommand('play')){
+  if(moviePostCommand('play',undefined,true)){
    movieLocalStatus('Play command sent. Waiting for player confirmation.');
    setTimeout(()=>{
     if(currentToken!==movieLocalCommandToken||movieLocalPaused)return;
@@ -910,8 +910,8 @@ function movieSendControl(action,position,playing,then){
   if(typeof then==='function')then();
  });
 }
-function moviePostCommand(command,time){
- if(!movieFrameEventsSeen||!websiteSelectedUrl||!verifiedCatalogPlayer(lastState))return false;
+function moviePostCommand(command,time,allowBeforeEvents=false){
+ if((!movieFrameEventsSeen&&!allowBeforeEvents)||!websiteSelectedUrl||!verifiedCatalogPlayer(lastState))return false;
  const target=$('websiteFrame').contentWindow;
  if(!target)return false;
  try{
@@ -924,6 +924,7 @@ function movieCatchupNow(){
  const pos=movieClockNow();
  if(pos===null)return toast('Waiting for the room timeline');
  websiteStoppedFor=null;
+ movieLocalPaused=false;++movieLocalCommandToken;
  loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:pos,playing:movieSnapshot?.playing}),true);
  websiteSelectedVersion=lastState.version;
  updateWebsitePlayerActions(websiteSelectedUrl);
@@ -961,7 +962,8 @@ function movieCorrectGuestDrift(){
  }
 }
 window.addEventListener('message',event=>{
- if(event.origin!==MOVIE_PLAYER_ORIGIN||!websiteSelectedUrl||
+ if(event.origin!==MOVIE_PLAYER_ORIGIN||!websiteSelectedUrl||movieLocalPaused||
+  !$('websiteFrame').hasAttribute('src')||
   event.source!==$('websiteFrame').contentWindow||!verifiedCatalogPlayer(lastState))return;
  const data=event.data;
  if(!data||typeof data!=='object'||Array.isArray(data)||data.type!=='PLAYER_EVENT')return;
@@ -977,6 +979,8 @@ window.addEventListener('message',event=>{
   ['play','playing','timeupdate','seeked'].includes(eventType)?true:false;
  movieFrameEventsSeen=true;
  movieFrameLastProgress=position;movieFrameLastProgressAt=Date.now();movieFrameLastPlaying=playing;
+ if(!movieLocalPaused&&$('websiteFrame').hasAttribute('src'))
+  movieLocalStatus((playing?'Playing':'Paused')+' confirmed near '+moviePositionText(position)+'.');
  if(movieIsHost()&&Date.now()-movieLastReportedAt>=1550){
   movieLastReportedAt=Date.now();movieSendControl('sample',position,playing);
  }else movieCorrectGuestDrift();
@@ -1009,7 +1013,7 @@ function unloadWebsiteFrame(){
  const frame=$('websiteFrame');
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
- setWebsiteClickGuard(false);
+ setWebsiteClickGuard();
  setWebsiteExitGuard(false);
 }
 function loadWebsiteFrame(url,compatibilityMode=false){
@@ -1025,8 +1029,13 @@ function loadWebsiteFrame(url,compatibilityMode=false){
  frame.removeAttribute('allowfullscreen');
  frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
  setWebsiteExitGuard(compatibilityMode);
+ const pos=Number(new URL(url).searchParams.get('startAt')||0);
+ movieLocalExpectedStart=Number.isFinite(pos)?Math.max(0,Math.min(86400,pos)):0;
+ movieLocalStartAt=Date.now();
+ movieLocalPaused=false;
  frame.setAttribute('src',url);
- setWebsiteClickGuard(false);
+ movieLocalStatus('Playback requested near '+moviePositionText(movieLocalExpectedStart)+'. Player status unverified.');
+ setWebsiteClickGuard();
 }
 function updateWebsitePlayerActions(url){
  const stopped=Boolean(url&&websiteStoppedFor===url);
@@ -1046,14 +1055,15 @@ function setWebsitePlayer(s){
   const url=target.toString();
   if(websiteSelectedUrl!==url||websiteSelectedVersion!==s.version){
    websiteSelectedUrl=url;websiteSelectedVersion=s.version;
-   websiteStoppedFor=null;
+   websiteStoppedFor=null;movieLocalPaused=false;++movieLocalCommandToken;
    loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true);
-  }else if(websiteStoppedFor!==url&&!frame.hasAttribute('src')){
+  }else if(websiteStoppedFor!==url&&!movieLocalPaused&&!frame.hasAttribute('src')){
    loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),true);
   }
   updateWebsitePlayerActions(url);
  }else{
   websiteSelectedUrl=null;websiteStoppedFor=null;websiteSelectedVersion=null;
+  movieLocalPaused=false;++movieLocalCommandToken;
   movieFrameEventsSeen=false;movieFrameLastProgress=null;
   unloadWebsiteFrame();updateWebsitePlayerActions(null);
  }
@@ -1062,6 +1072,7 @@ function setWebsitePlayer(s){
 $('websiteStop').onclick=()=>{
  if(!websiteSelectedUrl)return;
  websiteStoppedFor=websiteSelectedUrl;
+ movieLocalPaused=false;++movieLocalCommandToken;
  unloadWebsiteFrame();
  updateWebsitePlayerActions(websiteSelectedUrl);
  toast('Player stopped on this device.');
@@ -1069,6 +1080,7 @@ $('websiteStop').onclick=()=>{
 $('websiteResume').onclick=()=>{
  if(!websiteSelectedUrl||websiteStoppedFor!==websiteSelectedUrl)return;
  websiteStoppedFor=null;
+ movieLocalPaused=false;++movieLocalCommandToken;
  loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}),verifiedCatalogPlayer(lastState));
  updateWebsitePlayerActions(websiteSelectedUrl);
 };
