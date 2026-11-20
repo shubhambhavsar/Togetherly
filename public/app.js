@@ -479,7 +479,14 @@ async function catalogLoadTvEpisodes(id){
 function catalogClearSelection(){
  catalogEpisodeLookup++;catalogPlaySequence++;catalogEpisodeLoading=false;catalogEpisodeCounts=null;
  catalogChoice=null;
+ $('movieCatalog').classList.remove('is-title-selected');
  $('catalogId').value='';
+ $('catalogShareFeedback').textContent='';
+ $('catalogShareFeedback').classList.add('hidden');
+ $('catalogSelectedPoster').removeAttribute('src');
+ $('catalogSelectedPoster').classList.add('hidden');
+ $('catalogSelectedDescription').textContent='';
+ $('catalogSelectedDescription').classList.add('hidden');
  $('catalogPlayForm').classList.add('hidden');
  $('catalogEpisodeHelp').classList.add('hidden');
  $('catalogPlay').disabled=false;
@@ -491,6 +498,14 @@ function catalogSelectTitle(item){
  if(!item||!Number.isSafeInteger(item.id)||!['movie','tv'].includes(item.type))return;
  catalogClearSelection();
  catalogChoice={id:item.id,type:item.type,title:item.title};
+ const posterUrl=typeof item.poster==='string'&&item.poster.startsWith('https://image.tmdb.org/t/p/w92/')?item.poster:null;
+ if(posterUrl){
+  $('catalogSelectedPoster').src=posterUrl;
+  $('catalogSelectedPoster').classList.remove('hidden');
+ }
+ const description=typeof item.description==='string'?item.description.trim().slice(0,165):'';
+ $('catalogSelectedDescription').textContent=description;
+ $('catalogSelectedDescription').classList.toggle('hidden',!description);
  $('catalogType').value=item.type;
  $('catalogId').value=String(item.id);
  $('catalogSeason').value='1';$('catalogEpisode').value='1';
@@ -499,6 +514,7 @@ function catalogSelectTitle(item){
   (item.year?' · '+item.year:'');
  catalogEpisodeFields();
  $('catalogPlayForm').classList.remove('hidden');
+ $('movieCatalog').classList.add('is-title-selected');
  $('catalogStatus').textContent='Selected '+item.title+' — not shared yet. Use Watch with room to change what guests see.';
  catalogUpdateEpisodeGuide();
  if(item.type==='tv')catalogLoadTvEpisodes(item.id);
@@ -507,7 +523,10 @@ function catalogSelectTitle(item){
   button.classList.toggle('is-selected',selected);
   button.setAttribute('aria-pressed',String(selected));
  });
- $('catalogPlayForm').scrollIntoView?.({behavior:'smooth',block:'nearest'});
+ if(mobileIsCompact()){
+  if(document.activeElement===$('catalogQuery'))$('catalogQuery').blur();
+  $('mobilePickerPanel').scrollTop=0;
+ }else $('catalogPlayForm').scrollIntoView?.({behavior:'smooth',block:'nearest'});
 }
 function catalogShowResults(results,source){
  const out=$('catalogResults');
@@ -541,6 +560,8 @@ function catalogShowResults(results,source){
   row.onclick=()=>catalogSelectTitle(item);
   out.append(row);
  }
+ $('catalogResultCount').textContent=String(out.childElementCount)+' titles';
+ $('catalogResultHeading').classList.toggle('hidden',out.childElementCount===0);
  $('catalogStatus').textContent=out.childElementCount
   ?'Choose a title from the results.'+
     (source==='Wikidata'?' Limited results from Wikidata; some titles may be missing.':'')
@@ -551,6 +572,7 @@ async function catalogSearchNow(){
  if(catalogSearchController)catalogSearchController.abort();
  catalogSearchController=null;
  const searchId=++catalogSearchSequence;
+ $('catalogResultHeading').classList.add('hidden');
  if(q.length<2){
   $('catalogResults').replaceChildren();
   $('catalogStatus').textContent='Type at least two characters to see suggestions.';
@@ -601,6 +623,7 @@ document.querySelectorAll('#catalogExamples .catalog-example').forEach(button=>{
 });
 $('catalogChangeTitle').onclick=()=>{
  catalogClearSelection();
+ if(mobileIsCompact())$('mobilePickerPanel').scrollTop=0;
  $('catalogQuery').focus();
  $('catalogStatus').textContent='Choose another result or search for a different title.';
 };
@@ -628,6 +651,8 @@ $('catalogPlayForm').onsubmit=event=>{
  }
  const requestId=++catalogPlaySequence,choiceId=catalogChoice.id,choiceType=catalogChoice.type;
  const button=$('catalogPlay');button.disabled=true;
+ $('catalogShareFeedback').textContent='Starting this title for your room…';
+ $('catalogShareFeedback').classList.remove('hidden');
  $('catalogStatus').textContent='Sharing '+catalogChoice.title+' with your room…';
  socket.timeout(9000).emit('catalog:play',{
   type,id,season,episode,provider:$('catalogProvider').value,title:catalogChoice.title
@@ -635,8 +660,14 @@ $('catalogPlayForm').onsubmit=event=>{
   if(requestId!==catalogPlaySequence||catalogChoice?.id!==choiceId||catalogChoice?.type!==choiceType)return;
   catalogUpdateEpisodeGuide();
   if(error||ack?.error){
-   $('catalogStatus').textContent=ack?.error||'Could not load this source';return;
+   const message=ack?.error||'Could not load this source';
+   $('catalogStatus').textContent=message;
+   $('catalogShareFeedback').textContent=message;
+   $('catalogShareFeedback').classList.remove('hidden');
+   return;
   }
+  $('catalogShareFeedback').textContent='';
+  $('catalogShareFeedback').classList.add('hidden');
   $('catalogStatus').textContent='Shared with room. Guests load near the estimated room time; actual player timing may differ.';
   if(mobileIsCompact())mobileClosePanels();
  });
