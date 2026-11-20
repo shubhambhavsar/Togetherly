@@ -506,11 +506,11 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
  }
  assert.ok(html.includes('id="catalogProvider" type="hidden" value="vidfast"'));
  assert.ok(frontend.includes("return s.websiteUrl===expected"));
- assert.ok(frontend.includes("if(unrestricted)frame.removeAttribute('sandbox')"));
- assert.ok(frontend.includes("else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
- assert.ok(frontend.includes('const trusted=verifiedCatalogPlayer(s)'));
- assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted)'));
- assert.ok(frontend.includes('websiteLastUnrestricted!==trusted'));
+ assert.ok(frontend.includes("const WEBSITE_FRAME_SANDBOX='allow-scripts allow-same-origin allow-forms'"));
+ assert.ok(frontend.includes("frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
+ assert.ok(!frontend.includes("frame.removeAttribute('sandbox')"),'Movie iframe must stay sandboxed');
+ assert.ok(!frontend.includes('websiteLastUnrestricted'),'No implicit compatibility exception');
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline))'));
  assert.ok(frontend.includes("unloadWebsiteFrame()"));
  assert.ok(!frontend.includes("window.confirm(message)"));
 });
@@ -1192,4 +1192,22 @@ test('WebRTC recovery never restarts a peer who has left the room',()=>{
  assert.ok(frontend.includes('cameraNeedsRejoin=true'));
  assert.ok(frontend.includes('Your camera was paused by a network interruption'));
  assert.ok(frontend.includes("callRole='camera';callActive=true;sharingCall=true;cameraNeedsRejoin=false"));
+});
+
+test('movie frame blocks popups and nested fullscreen while keeping Togetherly theater available',()=>{
+ const start=html.indexOf('<iframe id="websiteFrame"');
+ const end=html.indexOf('</iframe>',start);
+ assert.ok(start>0&&end>start,'Movie frame missing');
+ const iframe=html.slice(start,end);
+ assert.ok(iframe.includes('sandbox="allow-scripts allow-same-origin allow-forms"'));
+ for(const permission of ['allow-popups','allow-top-navigation','allow-downloads','allow-presentation',
+  'allowfullscreen','fullscreen;']){
+  assert.ok(!iframe.includes(permission),'Unwanted frame permission: '+permission);
+ }
+ assert.ok(!frontend.includes("frame.removeAttribute('sandbox')"));
+ assert.ok(frontend.includes("frame.removeAttribute('allowfullscreen')"));
+ assert.ok(frontend.includes("frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture')"));
+ assert.ok(backend.includes('fullscreen=(self)'));
+ assert.ok(frontend.includes('theaterShell.requestFullscreen('));
+ assert.ok(html.includes('id="callOverlay"'));
 });
