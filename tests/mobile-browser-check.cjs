@@ -375,7 +375,20 @@ async function check(){
   }));
   console.log('Post movie theater navigation:',JSON.stringify(afterMovieUi));
   assert.ok(!afterMovieUi.theater,'Movie Theater must exit cleanly');
-  await host.locator('#mobileNavPeople').click();
+  // Chromium's Locator visibility can be stale just after fullscreen exits
+  // on emulated touch phones. Assert the dock is genuinely topmost, then tap
+  // its on-screen hit target as a user would.
+  const peopleBounds=await host.locator('#mobileNavPeople').evaluate(el=>{
+   const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
+   const target=document.elementFromPoint(x,y);
+   return {x,y,hit:target===el||el.contains(target),
+    visibility:getComputedStyle(el).visibility,
+    display:getComputedStyle(el).display};
+  });
+  assert.ok(peopleBounds.hit&&peopleBounds.visibility==='visible'&&
+    peopleBounds.display!=='none','People dock must be touch-accessible: '+JSON.stringify(peopleBounds));
+  await host.touchscreen.tap(peopleBounds.x,peopleBounds.y);
+  await host.locator('#peoplePanel').waitFor({state:'visible',timeout:4500});
 
   // Separate browser storage from the host; real guests have independent nicknames.
   const guestContext=await browser.newContext({
