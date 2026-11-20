@@ -36,38 +36,117 @@ function catalogPlayer(d){
   ...(d.type==='tv'?{season,episode}:{})};
 }
 const movieCatalogCache=new Map(),movieCatalogRate=new Map();
+// Key-free fallback: Wikidata search + public TMDB identifier claims.
+// Wikimedia metadata is incomplete. Never suggest that an ID implies rights.
+async function wikidataTitleSearch(q){
+ const base='https://www.wikidata.org/w/api.php';
+ const headers={'Accept':'application/json','User-Agent':'Togetherly/1.0 (movie metadata lookup; github.com/shubhambhavsar/Togetherly)'};
+ const search=new URL(base);
+ for(const [key,value] of Object.entries({
+  action:'wbsearchentities',search:q,language:'en',uselang:'en',type:'item',
+  limit:'35',format:'json',formatversion:'2'
+ }))search.searchParams.set(key,value);
+ const first=await fetch(search,{headers,signal:AbortSignal.timeout(6500)});
+ if(!first.ok)throw Error('Wikidata search unavailable');
+ const found=await first.json();
+ const matches=(Array.isArray(found.search)?found.search:[]).filter(x=>
+  /^Q[1-9]\d*$/.test(x?.id||'')).slice(0,35);
+ if(!matches.length)return [];
+ const entitiesUrl=new URL(base);
+ for(const [key,value] of Object.entries({
+  action:'wbgetentities',ids:matches.map(x=>x.id).join('|'),
+  props:'claims|labels|descriptions',languages:'en',format:'json',formatversion:'2'
+ }))entitiesUrl.searchParams.set(key,value);
+ const second=await fetch(entitiesUrl,{headers,signal:AbortSignal.timeout(6500)});
+ if(!second.ok)throw Error('Wikidata details unavailable');
+ const entities=(await second.json()).entities||{};
+ const idFor=(entity,property)=>{
+  const claims=entity?.claims?.[property];
+  if(!Array.isArray(claims))return null;
+  for(const claim of claims){
+   if(claim?.rank==='deprecated')continue;
+   const raw=claim?.mainsnak?.datavalue?.value;
+   if(typeof raw!=='string'||! /^[1-9]\d{0,8}$/.test(raw))continue;
+   const id=Number(raw);
+   if(Number.isSafeInteger(id)&&id<=999999999)return id;
+  }
+  return null;
+ };
+ const entries=[],seen=new Set(),needle=q.toLocaleLowerCase('en').trim();
+ for(const match of matches){
+  const entity=entities[match.id];
+  if(!entity)continue;
+  const movie=idFor(entity,'P4947'),tv=idFor(entity,'P4983');
+  const type=movie?'movie':tv?'tv':null;
+  if(!type)continue;
+  const id=movie||tv,identity=type+':'+id;
+  if(seen.has(identity))continue;
+  seen.add(identity);
+  const title=String(entity.labels?.en?.value||match.label||'').slice(0,110);
+  if(!title)continue;
+  const description=String(entity.descriptions?.en?.value||match.description||'').slice(0,90);
+  const m=description.match(/\b(?:18|19|20)\d{2}\b/);
+  entries.push({id,type,title,year:m?m[0]:'',poster:null,description});
+ }
+ // Keep close title matches first without inventing title popularity.
+ entries.sort((a,b)=>{
+  const rank=x=>{
+   const name=x.title.toLocaleLowerCase('en');
+   return name===needle?0:name.startsWith(needle)?1:name.includes(needle)?2:3;
+  };
+  return rank(a)-rank(b);
+ });
+ return entries.slice(0,12);
+}
 app.get('/api/catalog/search',async(req,res)=>{
  res.set('Cache-Control','private, no-store');
  const q=typeof req.query.q==='string'?req.query.q.trim():'';
- if(q.length<2||q.length>80)return res.status(400).json({error:'Enter a title between 2 and 80 characters'});
- const token=(process.env.TMDB_API_READ_TOKEN||'').trim();
- const key=(process.env.TMDB_API_KEY||'').trim();
- if(!token&&!key)return res.status(503).json({error:'Movie search needs a TMDB API token on the server. You can still enter a TMDB ID below.'});
+ if(q.length<2||q.length>80)return res.status(400).json({error:'Enter a film or TV series name (2–80 characters)'});
  const now=Date.now(),ip=String(req.ip||'unknown'),hits=movieCatalogRate.get(ip)||{until:now+60000,n:0};
  if(hits.until<now){hits.until=now+60000;hits.n=0}
  hits.n++;movieCatalogRate.set(ip,hits);
- if(hits.n>20)return res.status(429).json({error:'Please slow down and try again'});
- const cached=movieCatalogCache.get(q.toLowerCase());
- if(cached&&cached.until>now)return res.json({results:cached.items});
+ if(hits.n>25)return res.status(429).json({error:'Too many searches. Try again shortly.'});
+ const cacheKey=q.toLowerCase(),cached=movieCatalogCache.get(cacheKey);
+ if(cached&&cached.until>now)return res.json({results:cached.items,source:cached.source});
+ const token=(process.env.TMDB_API_READ_TOKEN||'').trim();
+ const key=(process.env.TMDB_API_KEY||'').trim();
+ // Prefer TMDB posters and rich results when the owner has configured it.
+ // Fall back to publicly indexed Wikidata IDs without requiring the user to
+ // know an internal movie identifier or share API credentials.
+ if(token||key){
+  try{
+   const url=new URL('https://api.themoviedb.org/3/search/multi');
+   url.searchParams.set('query',q);url.searchParams.set('include_adult','false');
+   url.searchParams.set('language','en-US');url.searchParams.set('page','1');
+   if(!token)url.searchParams.set('api_key',key);
+   const response=await fetch(url,{
+    headers:token?{Authorization:'Bearer '+token}:{},
+    signal:AbortSignal.timeout(6500)
+   });
+   if(!response.ok)throw Error('TMDB '+response.status);
+   const payload=await response.json();
+   const items=(Array.isArray(payload.results)?payload.results:[])
+    .filter(x=>['movie','tv'].includes(x.media_type)&&Number.isSafeInteger(x.id)&&x.id>0)
+    .slice(0,12).map(x=>({
+     id:x.id,type:x.media_type,title:String(x.title||x.name||'Untitled').slice(0,110),
+     year:String(x.release_date||x.first_air_date||'').slice(0,4),
+     poster:/^\/[A-Za-z0-9_./-]+$/.test(x.poster_path||'')?'https://image.tmdb.org/t/p/w92'+x.poster_path:null,
+     description:''
+    }));
+   movieCatalogCache.set(cacheKey,{items,source:'TMDB',until:now+10*60*1000});
+   if(movieCatalogCache.size>100)movieCatalogCache.delete(movieCatalogCache.keys().next().value);
+   return res.json({results:items,source:'TMDB'});
+  }catch(error){console.warn('TMDB movie lookup failed; trying Wikidata fallback:',error.message)}
+ }
  try{
-  const url=new URL('https://api.themoviedb.org/3/search/multi');
-  url.searchParams.set('query',q);url.searchParams.set('include_adult','false');
-  url.searchParams.set('language','en-US');url.searchParams.set('page','1');
-  if(!token)url.searchParams.set('api_key',key);
-  const response=await fetch(url,{headers:token?{Authorization:'Bearer '+token}:{},signal:AbortSignal.timeout(7500)});
-  if(!response.ok)throw Error('TMDB '+response.status);
-  const data=await response.json();
-  const items=(Array.isArray(data.results)?data.results:[])
-   .filter(x=>['movie','tv'].includes(x.media_type)&&Number.isSafeInteger(x.id)&&x.id>0)
-   .slice(0,12).map(x=>({
-    id:x.id,type:x.media_type,title:String(x.title||x.name||'Untitled').slice(0,110),
-    year:String(x.release_date||x.first_air_date||'').slice(0,4),
-    poster:/^\/[A-Za-z0-9_./-]+$/.test(x.poster_path||'')?'https://image.tmdb.org/t/p/w92'+x.poster_path:null
-   }));
-  movieCatalogCache.set(q.toLowerCase(),{items,until:now+10*60*1000});
+  const items=await wikidataTitleSearch(q);
+  movieCatalogCache.set(cacheKey,{items,source:'Wikidata',until:now+10*60*1000});
   if(movieCatalogCache.size>100)movieCatalogCache.delete(movieCatalogCache.keys().next().value);
-  res.json({results:items});
- }catch{res.status(502).json({error:'TMDB search is unavailable. You can enter a TMDB ID manually.'})}
+  res.json({results:items,source:'Wikidata'});
+ }catch(error){
+  console.warn('Movie title lookup unavailable:',error.message);
+  res.status(502).json({error:'Movie suggestions are temporarily unavailable. Please try again.'});
+ }
 });
 app.disable('x-powered-by');
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self), geolocation=(), payment=(), display-capture=(), clipboard-read=(), clipboard-write=(self), usb=(), serial=(), bluetooth=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()');next()});
