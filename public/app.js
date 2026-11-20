@@ -503,9 +503,7 @@ function sendPlayback(action){if(!playerReady||applying||lastState?.source==='we
 // A legacy arbitrary shared-website URL remains sandboxed, never auto-trusted.
 const WEBSITE_FRAME_SANDBOX='allow-scripts allow-presentation';
 const CATALOG_ALLOWED_PLAYERS=Object.freeze({
- vidsrc:{movie:id=>'https://vsembed.su/embed/movie/'+id,tv:(id,s,e)=>'https://vsembed.su/embed/tv/'+id+'/'+s+'/'+e},
- vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e},
- vidlove:{movie:id=>'https://player.vidlove.cc/embed/movie/'+id,tv:(id,s,e)=>'https://player.vidlove.cc/embed/tv/'+id+'/'+s+'/'+e}
+ vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
 let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false,websiteLastUnrestricted=false;
 function verifiedCatalogPlayer(s){
@@ -544,12 +542,9 @@ function updateWebsitePlayerActions(url){
  $('websiteStop').classList.toggle('hidden',!url||stopped);
  $('websiteResume').classList.toggle('hidden',!stopped);
  $('websiteStopped').classList.toggle('hidden',!stopped);
- $('websiteModeStatus').textContent=stopped?'Stopped on this device':
-  verifiedCatalogPlayer(lastState)?'Experimental source · Not synchronized':
-  'Protected legacy source · Not synchronized';
 }
 function setWebsitePlayer(s){
- const external=s?.source==='website'&&typeof s.websiteUrl==='string'&&s.websiteUrl.startsWith('https://');
+ const external=s?.source==='website'&&verifiedCatalogPlayer(s);
  const shell=$('videoShell'),frame=$('websiteFrame');
  shell.classList.toggle('website-mode',external);
  $('websitePlayer').classList.toggle('hidden',!external);
@@ -558,8 +553,6 @@ function setWebsitePlayer(s){
   try{target=new URL(s.websiteUrl);if(target.protocol!=='https:')throw Error('Invalid protocol')}
   catch{unloadWebsiteFrame();return false}
   const url=target.toString();
-  $('websiteHost').textContent=s.catalog?.title||target.hostname;
-  $('openWebsite').href=url;
   const trusted=verifiedCatalogPlayer(s);
   if(websiteSelectedUrl!==url){
    websiteSelectedUrl=url;websiteStoppedFor=null;websiteLastUnrestricted=trusted;
