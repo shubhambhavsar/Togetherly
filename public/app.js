@@ -394,6 +394,8 @@ async function catalogSearchNow(){
 }
 $('catalogQuery').addEventListener('input',()=>{
  clearTimeout(catalogSearchTimer);
+ if(catalogSearchController)catalogSearchController.abort();
+ catalogSearchSequence++;
  catalogClearSelection();
  if($('catalogQuery').value.trim().length<2){
   catalogSearchNow();return;
