@@ -775,6 +775,11 @@ function movieLocalPlay(){
     websiteStoppedFor===websiteSelectedUrl)return;
  const wasPaused=movieLocalPaused;
  const at=wasPaused?movieLocalPausedAt:movieLocalCurrentTime();
+ if(!wasPaused&&movieFrameLastPlaying===true&&
+    Date.now()-movieFrameLastProgressAt<4000){
+  movieLocalStatus('Player reports playing near '+moviePositionText(at)+'.');
+  return;
+ }
  if(!wasPaused&&$('websiteFrame').hasAttribute('src')){
   const currentToken=++movieLocalCommandToken;
   if(moviePostCommand('play',undefined,true)){
