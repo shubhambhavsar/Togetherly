@@ -7,7 +7,8 @@ let roomQueue=[],searchReady=false,searching=false,autoJoinAttempted=false;
 const displayedChatIds=new Set(),unplayableVideos=new Set();
 try{for(const id of JSON.parse(sessionStorage.getItem('togetherly.unplayable')||'[]'))if(/^[\w-]{11}$/.test(id))unplayableVideos.add(id)}catch{}
 function markUnplayable(id){if(!id||!/^[\w-]{11}$/.test(id))return;unplayableVideos.add(id);try{sessionStorage.setItem('togetherly.unplayable',JSON.stringify([...unplayableVideos].slice(-50)))}catch{}}
-let localStream=null,callActive=false,callJoining=false,iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+let localStream=null,callActive=false,callJoining=false,callAttempt=0,cameraInterrupted=false,
+ iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
 let callMembers=[],unread=0,chatOpen=false,callMinimized=false,callViewMode='compact',callRole=null,sharingCall=false;
 const cameraMembers=()=>callMembers.filter(m=>m.role==='camera');
 const callUser=id=>callMembers.find(m=>m.id===id);
@@ -40,6 +41,7 @@ function showMembers(){
   row.append(badge);box.append(row)
  }
  updateCallActions();
+ updateMobilePeopleCount();
 }
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
 socket.on('call:members',members=>{
@@ -61,7 +63,7 @@ function addMessage(m,notify=true){
  $('chat').scrollTop=$('chat').scrollHeight;
  if(notify&&!chatOpen&&(theaterActive()||matchMedia('(max-width:850px)').matches)){
   unread=Math.min(99,unread+1);
-  for(const id of ['toolbarUnread']){
+  for(const id of ['toolbarUnread','mobileNavUnread']){
     $(id).textContent=String(unread);$(id).classList.remove('hidden')
   }
  }
@@ -123,7 +125,7 @@ function createResult(item){
  const play=document.createElement('button');play.className='primary-button small';play.textContent=blocked?'Unavailable':'Watch now';play.disabled=blocked;
  play.onclick=()=>{
   const url='https://www.youtube.com/watch?v='+item.id;
-  socket.emit('video',{url},result=>{if(result?.error)return toast(result.error);saveRecent(item);closeExplore()})
+  socket.emit('video',{url},result=>{if(result?.error)return toast(result.error);saveRecent(item);closeExplore();if(mobileIsCompact())mobileClosePanels()})
  };
  const queue=document.createElement('button');queue.className='secondary-button small';queue.textContent='+ Queue';queue.disabled=blocked;
  queue.onclick=()=>socket.emit('queue:add',{url:item.id,title:humanTitle(item.title)},result=>{if(result?.error)return toast(result.error);saveRecent(item);toast('Added to the watch queue')});
@@ -226,10 +228,12 @@ function toggleChat(show){
  if(chatOpen){
   unread=0;
   $('toolbarUnread').classList.add('hidden');
+  $('mobileNavUnread').classList.add('hidden');
   // On mobile, opening messages must not automatically summon the keyboard.
   if(!theaterActive()&&!matchMedia('(max-width:860px)').matches)setTimeout(()=>$('chatText').focus(),50)
  }else if(document.activeElement===$('chatText'))$('chatText').blur();
- updateChatViewport()
+ updateChatViewport();
+ updateMobileChrome();
 }
 $('toolbarChat').onclick=()=>toggleChat(!chatOpen);
 $('closeChat').onclick=()=>toggleChat(false);
@@ -288,7 +292,10 @@ document.addEventListener('fullscreenchange',()=>{
  else updateTheaterUI();
 });
 
-$('load').onclick=()=>{if(!room)return;socket.emit('video',{url:$('videoURL').value},d=>{if(d?.error)toast(d.error)})};
+$('load').onclick=()=>{if(!room)return;socket.emit('video',{url:$('videoURL').value},d=>{
+ if(d?.error)toast(d.error);
+ else if(mobileIsCompact())mobileClosePanels();
+})};
 // Movies and YouTube are now separate, discoverable tabs.
 let activeSourceTab='movies';
 function setSourceTab(tab){
@@ -302,9 +309,119 @@ function setSourceTab(tab){
  $('youtubeSourcePanel').classList.toggle('hidden',movies);
 }
 $('tabMovies').onclick=()=>setSourceTab('movies');
+
 $('tabYouTube').onclick=()=>setSourceTab('youtube');
 $('youtubeBrowse').onclick=()=>openExplore();
 setSourceTab('movies');
+
+/* Mobile watch-first navigation. Keep actual video/rooms/chats in their
+   original DOM containers; only reveal lightweight sheets on touch layouts. */
+const mobileIsCompact=()=>matchMedia('(max-width:800px), (pointer:coarse) and (max-width:1050px)').matches;
+let mobileSheet=null,mobileSheetReturnFocus=null;
+function mobileSetCurrent(destination){
+ for(const [name,id] of [['watch','mobileNavWatch'],['choose','mobileNavChoose'],
+  ['people','mobileNavPeople'],['chat','mobileNavChat']]){
+  const node=$(id),selected=name===destination;
+  node.classList.toggle('is-current',selected);
+  if(selected)node.setAttribute('aria-current','page');
+  else node.removeAttribute('aria-current');
+ }
+}
+function updateMobilePeopleCount(){
+ $('mobileNavPeopleCount').textContent=String(participants.length||1);
+}
+function updateMobileChrome(){
+ const compact=mobileIsCompact();
+ const picker=compact&&mobileSheet==='choose';
+ const people=compact&&mobileSheet==='people';
+ const messaging=compact&&chatOpen;
+ const any=picker||people||messaging;
+ $('mobilePickerPanel').classList.toggle('mobile-open',picker);
+ $('peoplePanel').classList.toggle('mobile-open',people);
+ $('mobileSheetBackdrop').classList.toggle('hidden',!any);
+ document.body.classList.toggle('mobile-sheet-open',picker||people);
+ document.body.classList.toggle('mobile-chat-open',messaging);
+ $('mobileNavChoose').setAttribute('aria-expanded',String(picker));
+ $('mobileNavPeople').setAttribute('aria-expanded',String(people));
+ $('mobileNavChat').setAttribute('aria-expanded',String(messaging));
+ for(const [id,shown] of [['mobilePickerPanel',picker],['peoplePanel',people]]){
+  const panel=$(id);
+  if(shown){panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true')}
+  else{panel.removeAttribute('role');panel.removeAttribute('aria-modal')}
+ }
+ mobileSetCurrent(picker?'choose':people?'people':messaging?'chat':'watch');
+}
+function mobileClosePanels(closeChat=true){
+ const wasOpen=Boolean(mobileSheet||chatOpen);
+ mobileSheet=null;
+ if(closeChat&&chatOpen)toggleChat(false);
+ else updateMobileChrome();
+ if(wasOpen&&mobileIsCompact()){
+  const target=mobileSheetReturnFocus;
+  mobileSheetReturnFocus=null;
+  if(target?.isConnected&&typeof target.focus==='function')target.focus({preventScroll:true});
+ }
+}
+function mobileShowSheet(name){
+ if(!mobileIsCompact())return;
+ if(theaterActive()){toggleTheater().then(()=>mobileShowSheet(name));return}
+ const next=mobileSheet===name?null:name;
+ if(!mobileSheet&&!chatOpen)mobileSheetReturnFocus=document.activeElement;
+ if(chatOpen)toggleChat(false);
+ mobileSheet=next;updateMobileChrome();
+ if(next==='choose')$('mobileClosePicker').focus({preventScroll:true});
+ else if(next==='people')$('mobileClosePeople').focus({preventScroll:true});
+ else if(!next)mobileClosePanels(false);
+}
+$('mobileNavWatch').onclick=()=>{
+ mobileClosePanels();
+ $('videoShell').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth',block:'start'});
+};
+$('mobileNavChoose').onclick=()=>mobileShowSheet('choose');
+$('mobileNavPeople').onclick=()=>mobileShowSheet('people');
+$('mobileNavChat').onclick=async()=>{
+ if(theaterActive())await toggleTheater();
+ const open=!chatOpen;
+ if(!mobileSheet&&!chatOpen)mobileSheetReturnFocus=document.activeElement;
+ mobileSheet=null;
+ toggleChat(open);
+};
+$('mobileClosePicker').onclick=()=>mobileClosePanels();
+$('mobileClosePeople').onclick=()=>mobileClosePanels();
+$('mobileSheetBackdrop').onclick=()=>mobileClosePanels();
+// Touching Close while the keyboard is up can resize the viewport before
+// mouseup/click fires. Close on pointerdown; retain click for keyboard/AT.
+function onMobileChatClose(event){
+ if(!mobileIsCompact()||!chatOpen)return;
+ event.preventDefault();
+ event.stopPropagation();
+ if(event.type==='click')event.stopImmediatePropagation();
+ mobileClosePanels();
+}
+$('closeChat').addEventListener('pointerdown',onMobileChatClose,true);
+$('closeChat').addEventListener('click',onMobileChatClose,true);
+$('mobileRename').onclick=()=>$('rename').click();
+$('mobileLeave').onclick=()=>$('leave').click();
+$('mobileCatchup').onclick=()=>movieCatchupNow();
+$('mobileQueueToggle').onclick=()=>{
+ const parent=document.querySelector('#watch .watch-queue'),expanded=parent.classList.toggle('is-open');
+ $('mobileQueueToggle').setAttribute('aria-expanded',String(expanded));
+ $('mobileQueueToggle').innerHTML=expanded?'Hide queue <span aria-hidden="true">⌃</span>':
+  'Show queue <span aria-hidden="true">⌄</span>';
+};
+document.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&mobileIsCompact()&&(mobileSheet||chatOpen)){
+  event.preventDefault();mobileClosePanels();
+ }
+});
+window.addEventListener('resize',()=>{
+ if(!mobileIsCompact()&&(mobileSheet||document.body.classList.contains('mobile-chat-open'))){
+  mobileSheet=null;updateMobileChrome()
+ }
+});
+updateMobileChrome();
+updateMobilePeopleCount();
+
 // Streambert-inspired movie catalogue. TMDB supplies metadata only; sources are
 // provider-controlled embedded sites, not direct playable video under our control.
 // Movie IDs are internal to the catalogue. Viewers select a title instead.
@@ -521,6 +638,7 @@ $('catalogPlayForm').onsubmit=event=>{
    $('catalogStatus').textContent=ack?.error||'Could not load this source';return;
   }
   $('catalogStatus').textContent='Shared with room. Guests load near the estimated room time; actual player timing may differ.';
+  if(mobileIsCompact())mobileClosePanels();
  });
 };
 let ytScriptStarted=false,playerTimeout=null;
@@ -623,6 +741,7 @@ function movieUpdateSnapshot(t){
 function updateMovieSyncUI(){
  const active=lastState?.source==='website'&&verifiedCatalogPlayer(lastState);
  $('movieRoomSync').classList.toggle('hidden',!active);
+ $('mobileCatchup').classList.toggle('hidden',!active);
  if(!active)return;
  const current=movieClockNow();
  const prefix=movieSnapshot?.origin==='player'?'Player-reported':'Estimated';
@@ -633,8 +752,8 @@ function updateMovieSyncUI(){
  $('moviePlayClock').disabled=!host||Boolean(movieSnapshot?.playing&&movieSnapshot?.origin!=='estimated');
  $('moviePauseClock').disabled=!host||!movieSnapshot?.playing;
  $('movieSyncHint').textContent=host
-  ?'The clock begins when the movie is shared. If it buffered or started late, tap "I\'m playing now" when playback really begins. Use Set room time after seeking. Provider events update the clock only when available.'
-  :'If you joined late, tap Join at room time to load near the host\'s estimated position. Player autoplay and exact synchronization may be unavailable.';
+  ?'If playback starts late or you seek, update the room clock. Exact sync is not guaranteed.'
+  :'Tap Catch up to jump near the room time. Actual playback can drift.';
 }
 function movieEmbedUrl(base,timeline){
  const url=new URL(base);
@@ -856,6 +975,10 @@ socket.on('state',applyState);
 setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')},22000);
 socket.on('connect',()=>{
  me=socket.id;updateChatConnection();
+ if(cameraInterrupted){
+  cameraInterrupted=false;
+  toast('Connection restored. Camera stayed off — rejoin from People when ready.');
+ }
  if(room){
   leaveCall(false);
   socket.emit('join',{id:room,name:currentName||nickname()},d=>{
@@ -871,6 +994,7 @@ socket.on('connect',()=>{
  }
 });
 socket.on('disconnect',()=>{
+ if(callRole==='camera'&&callActive)cameraInterrupted=true;
  notice('Connection lost. Trying to reconnect…');
  $('syncLabel').textContent='Reconnecting…';
  updateChatConnection();leaveCall(false)
@@ -947,11 +1071,15 @@ function setCallUI(active){
  if(!active){callMinimized=false;callViewMode='compact';callRole=null;sharingCall=false}
  $('mic').textContent='Mute microphone';
  $('camera').textContent='Turn camera off';
+ $('mic').setAttribute('aria-pressed','false');$('mic').disabled=false;
+ $('camera').setAttribute('aria-pressed','false');$('camera').disabled=false;
  $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
  syncCallDock();showMembers()
 }
 async function leaveCall(send=true){
- if(send&&socket.connected&&callActive)socket.emit('call:leave');
+ const pending=callJoining;
+ callAttempt++;
+ if(send&&socket.connected&&(callActive||pending))socket.emit('call:leave');
  callActive=false;callJoining=false;
  [...connections.keys()].forEach(removePeer);
  localStream?.getTracks().forEach(t=>t.stop());localStream=null;
@@ -1006,12 +1134,28 @@ async function onSignal({from,data}){
  try{
   const pc=await createPeer(from,false);if(!pc)return;
   if(data.description){
-   await pc.setRemoteDescription(new RTCSessionDescription(data.description));
+   const description=new RTCSessionDescription(data.description);
+   const collision=description.type==='offer'&&pc.signalingState!=='stable';
+   // Deterministic polite peer avoids simultaneous-offer glare on reconnect.
+   if(collision){
+    if(String(me)<String(from))return;
+    await pc.setLocalDescription({type:'rollback'});
+   }
+   if(description.type==='answer'&&pc.signalingState!=='have-local-offer')return;
+   await pc.setRemoteDescription(description);
    await drainCandidates(from,pc);
-   if(data.description.type==='offer'){const answer=await pc.createAnswer();await pc.setLocalDescription(answer);socket.emit('call:signal',{to:from,data:{description:pc.localDescription.toJSON()}})}
+   if(description.type==='offer'){
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    if(callActive&&socket.connected)socket.emit('call:signal',{to:from,data:{description:pc.localDescription.toJSON()}});
+   }
   }else if(data.candidate){
    if(pc.remoteDescription)await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-   else{if(!candidateQueues.has(from))candidateQueues.set(from,[]);candidateQueues.get(from).push(data.candidate)}
+   else{
+    if(!candidateQueues.has(from))candidateQueues.set(from,[]);
+    const queue=candidateQueues.get(from);
+    if(queue.length<128)queue.push(data.candidate);
+   }
   }
  }catch(e){console.error('Call signaling failed',e);tileStatus(from,'Connection error');toast('Call signaling error. Try leaving and rejoining.')}
 }
@@ -1032,51 +1176,92 @@ function offerAvailableCameras(ids){
 // All room members are receive-only subscribers by default. No media permissions.
 async function startSpectatorView(){
  if(!room||!socket.connected||callActive||callJoining)return;
+ const attempt=++callAttempt;
  callJoining=true;updateCallActions();
  try{
   await loadIceServers();
+  if(attempt!==callAttempt)return;
   if(!room||!socket.connected){callJoining=false;updateCallActions();return}
   socket.timeout(10000).emit('call:join',{role:'spectator'},(err,result)=>{
+   if(attempt!==callAttempt)return;
    callJoining=false;
-   if(err||result?.error){console.warn('Room camera viewing unavailable:',result?.error||err);updateCallActions();return}
+   if(err||result?.error){
+    console.warn('Room camera viewing unavailable:',result?.error||err);
+    $('callStatus').textContent='Unable to connect to cameras — retry from People';
+    updateCallActions();return
+   }
    callRole='spectator';callActive=true;callMembers=result.callMembers||callMembers;
    setCallUI(true);offerAvailableCameras(result.peers)
   })
- }catch(error){callJoining=false;updateCallActions();console.warn('Passive viewer could not start:',error)}
+ }catch(error){
+  if(attempt!==callAttempt)return;
+  callJoining=false;updateCallActions();
+  $('callStatus').textContent='Camera viewing unavailable — try reconnecting';
+  console.warn('Passive viewer could not start:',error)
+ }
 }
 // Camera joining is an explicit choice; the room can see and hear the camera owner.
 async function joinCall(){
  if(callJoining||!room||callRole==='camera')return;
  if(cameraMembers().length>=2)return toast('Both camera seats are currently occupied');
+ const attempt=++callAttempt;
  callJoining=true;updateCallActions();
  $('callStatus').textContent='Requesting camera permission…';
  try{
-  await getMedia();
+  const stream=await getMedia();
+  if(attempt!==callAttempt||!room||!socket.connected){
+   stream.getTracks().forEach(t=>t.stop());
+   if(localStream===stream)localStream=null;
+   return;
+  }
   await loadIceServers();
-  if(!socket.connected)throw Error('Connection lost; please reconnect to your room');
+  if(attempt!==callAttempt||!room||!socket.connected){
+   stream.getTracks().forEach(t=>t.stop());
+   if(localStream===stream)localStream=null;
+   return;
+  }
   socket.timeout(10000).emit('call:join',{role:'camera'},(err,result)=>{
+   if(attempt!==callAttempt)return;
    callJoining=false;
    if(err||result?.error){
     localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+    $('callStatus').textContent='Camera unavailable — try again';
     toast(result?.error||'Could not join on camera');updateCallActions();return
    }
-   // Existing passive connections are no longer valid after role promotion.
+   // Existing passive connections must be rebuilt when publishing starts.
    [...connections.keys()].forEach(removePeer);
    callRole='camera';callActive=true;sharingCall=true;
    callMembers=result.callMembers||callMembers;
-   displayTile('self',true).srcObject=localStream;
-   setCallUI(true);offerAvailableCameras(result.peers)
+   displayTile('self',true).srcObject=stream;
+   setCallUI(true);offerAvailableCameras(result.peers);
+   for(const track of stream.getTracks()){
+    track.addEventListener('ended',()=>{
+     if(attempt!==callAttempt||callRole!=='camera')return;
+     if(track.kind==='video'){
+      $('camera').textContent='Camera unavailable';
+      $('camera').disabled=true;
+      $('callStatus').textContent='Camera device disconnected';
+      toast('Camera disconnected. Leave and rejoin to recover.');
+     }else{
+      $('mic').textContent='Microphone unavailable';
+      $('mic').disabled=true;
+      toast('Microphone disconnected. Rejoin the call to recover.');
+     }
+    },{once:true});
+   }
   })
  }catch(error){
+  if(attempt!==callAttempt)return;
   callJoining=false;
   localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+  $('callStatus').textContent='Camera permission or device unavailable';
   updateCallActions();toast(error.message||'Could not access your camera')
  }
 }
 $('call').onclick=joinCall;
 $('hangup').onclick=()=>{leaveCall(true);startSpectatorView()};
-$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
-$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
+$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t||t.readyState!=='live')return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
+$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t||t.readyState!=='live')return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
 // Tapping any camera tile cycles compact → minimized bubble → enlarged → compact.
 // The media stream stays active: changing the preview size never mutes or ends the call.
 $('callOverlay').onclick=()=>cycleCallView();
