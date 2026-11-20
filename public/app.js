@@ -717,13 +717,15 @@ $('retryPlayer').onclick=()=>{
 };
 loadYouTubeAPI();
 function sendPlayback(action){if(!playerReady||applying||lastState?.source==='website')return;const p=player.getCurrentTime();if(!Number.isFinite(p))return;socket.emit('playback',{action,position:p,version});if(lastState){lastState={...lastState,position:p,playing:action==='play'?true:action==='pause'?false:lastState.playing}}}
-// Only exact, server-generated movie source URLs bypass the iframe sandbox.
-// A legacy arbitrary shared-website URL remains sandboxed, never auto-trusted.
-const WEBSITE_FRAME_SANDBOX='allow-scripts allow-presentation';
+// All third-party movie frames are sandboxed, including catalogue URLs.
+// Allow playback scripts, provider-origin state and form controls, but NEVER
+// popups, parent navigation, downloads or native iframe fullscreen.
+// These external sources have a distinct origin from Togetherly.
+const WEBSITE_FRAME_SANDBOX='allow-scripts allow-same-origin allow-forms';
 const CATALOG_ALLOWED_PLAYERS=Object.freeze({
  vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
-let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false,websiteLastUnrestricted=false;
+let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false;
 let websiteSelectedVersion=null,movieSnapshot=null,movieSnapshotAt=0;
 let movieFrameEventsSeen=false,movieFrameLastProgress=null,movieFrameLastProgressAt=0;
 let movieFrameLastPlaying=null,movieLastPlaybackCommandAt=0;
@@ -906,15 +908,19 @@ function unloadWebsiteFrame(){
  frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
  setWebsiteExitGuard(false);
 }
-function loadWebsiteFrame(url,unrestricted){
+function loadWebsiteFrame(url){
  const frame=$('websiteFrame');
  movieFrameEventsSeen=false;movieFrameLastProgress=null;movieFrameLastProgressAt=0;
  movieFrameLastPlaying=null;movieLastCorrectionAt=Date.now();movieLastPlaybackCommandAt=Date.now();
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
- if(unrestricted)frame.removeAttribute('sandbox');
- else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
+ // Set the sandbox before src: block target=_blank/window.open and parent
+ // navigation from an untrusted movie site, without blocking normal clicks.
+ frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
+ // A nested player fullscreen would hide our local camera overlay.
+ frame.removeAttribute('allowfullscreen');
+ frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
  frame.setAttribute('src',url);
- setWebsiteExitGuard(unrestricted);
+ setWebsiteExitGuard(false);
 }
 function updateWebsitePlayerActions(url){
  const stopped=Boolean(url&&websiteStoppedFor===url);
@@ -932,18 +938,16 @@ function setWebsitePlayer(s){
   try{target=new URL(s.websiteUrl);if(target.protocol!=='https:')throw Error('Invalid protocol')}
   catch{unloadWebsiteFrame();return false}
   const url=target.toString();
-  const trusted=verifiedCatalogPlayer(s);
   if(websiteSelectedUrl!==url||websiteSelectedVersion!==s.version){
    websiteSelectedUrl=url;websiteSelectedVersion=s.version;
-   websiteStoppedFor=null;websiteLastUnrestricted=trusted;
-   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted);
-  }else if(websiteStoppedFor!==url&&(websiteLastUnrestricted!==trusted||!frame.hasAttribute('src'))){
-   websiteLastUnrestricted=trusted;
-   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted);
+   websiteStoppedFor=null;
+   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline));
+  }else if(websiteStoppedFor!==url&&!frame.hasAttribute('src')){
+   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline));
   }
   updateWebsitePlayerActions(url);
  }else{
-  websiteSelectedUrl=null;websiteStoppedFor=null;websiteLastUnrestricted=false;websiteSelectedVersion=null;
+  websiteSelectedUrl=null;websiteStoppedFor=null;websiteSelectedVersion=null;
   movieFrameEventsSeen=false;movieFrameLastProgress=null;
   unloadWebsiteFrame();updateWebsitePlayerActions(null);
  }
@@ -959,7 +963,7 @@ $('websiteStop').onclick=()=>{
 $('websiteResume').onclick=()=>{
  if(!websiteSelectedUrl||websiteStoppedFor!==websiteSelectedUrl)return;
  websiteStoppedFor=null;
- loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}),verifiedCatalogPlayer(lastState));
+ loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}));
  updateWebsitePlayerActions(websiteSelectedUrl);
 };
 function applyState(s){
