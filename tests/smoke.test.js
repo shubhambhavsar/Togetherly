@@ -492,7 +492,7 @@ test('the simplified room switches between movie search and YouTube',()=>{
  assert.ok(html.includes('class="toolbar-actions"'),'Player exit action stays outside the video');
  assert.ok(!html.includes('id="websiteForm"')&&!html.includes('id="websiteSyncPanel"'));
  assert.ok(!html.includes('id="websiteCompatibility"')&&!html.includes('Try compatibility mode'));
- assert.ok(html.includes('/watch-redesign.css?v=1'));
+ assert.ok(html.includes('/watch-redesign.css?v=2'));
  assert.ok(frontend.includes("setSourceTab('movies')")&&frontend.includes("setSourceTab('youtube')"));
 });
 test('movie embeds are restricted to the remaining exact-match source and no overlay',()=>{
