@@ -1368,7 +1368,7 @@ test('mixed queue supports validated YouTube videos, films and episodes and open
  const movie=await guest.ask('queue:add',{catalog:{provider:'vidfast',type:'movie',id:550,title:'Fight Club'}});
  const tv=await host.ask('queue:add',{catalog:{provider:'vidfast',type:'tv',id:1399,season:2,episode:3,title:'Series'}});
  assert.ok(youtube.ok&&movie.ok&&tv.ok);
- const list=sent.filter(x=>x.event==='queue:update').at(-1).data;
+ const list=sent.filter(x=>x.event==='queue:update').at(-1).data.map(item=>({...item}));
  assert.equal(list.length,3);
  assert.deepEqual(Array.from(list.map(x=>x.source)),['youtube','website','website']);
  assert.equal(list[2].catalog.season,2);
