@@ -16,3 +16,9 @@ jobs:
       - run: node --check server.js
       - run: node --check public/app.js
       - run: npm test
+      - name: Install browser test dependencies
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Test mobile watch-room interactions in Chromium
+        run: node tests/mobile-browser-check.cjs
