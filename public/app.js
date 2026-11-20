@@ -7,7 +7,8 @@ let roomQueue=[],searchReady=false,searching=false,autoJoinAttempted=false;
 const displayedChatIds=new Set(),unplayableVideos=new Set();
 try{for(const id of JSON.parse(sessionStorage.getItem('togetherly.unplayable')||'[]'))if(/^[\w-]{11}$/.test(id))unplayableVideos.add(id)}catch{}
 function markUnplayable(id){if(!id||!/^[\w-]{11}$/.test(id))return;unplayableVideos.add(id);try{sessionStorage.setItem('togetherly.unplayable',JSON.stringify([...unplayableVideos].slice(-50)))}catch{}}
-let localStream=null,callActive=false,callJoining=false,iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+let localStream=null,callActive=false,callJoining=false,callAttempt=0,cameraInterrupted=false,
+ iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
 let callMembers=[],unread=0,chatOpen=false,callMinimized=false,callViewMode='compact',callRole=null,sharingCall=false;
 const cameraMembers=()=>callMembers.filter(m=>m.role==='camera');
 const callUser=id=>callMembers.find(m=>m.id===id);
@@ -962,6 +963,10 @@ socket.on('state',applyState);
 setInterval(()=>{if(room&&playerReady&&!document.hidden)socket.emit('sync')},22000);
 socket.on('connect',()=>{
  me=socket.id;updateChatConnection();
+ if(cameraInterrupted){
+  cameraInterrupted=false;
+  toast('Connection restored. Camera stayed off — rejoin from People when ready.');
+ }
  if(room){
   leaveCall(false);
   socket.emit('join',{id:room,name:currentName||nickname()},d=>{
@@ -977,6 +982,7 @@ socket.on('connect',()=>{
  }
 });
 socket.on('disconnect',()=>{
+ if(callRole==='camera'&&callActive)cameraInterrupted=true;
  notice('Connection lost. Trying to reconnect…');
  $('syncLabel').textContent='Reconnecting…';
  updateChatConnection();leaveCall(false)
@@ -1053,11 +1059,15 @@ function setCallUI(active){
  if(!active){callMinimized=false;callViewMode='compact';callRole=null;sharingCall=false}
  $('mic').textContent='Mute microphone';
  $('camera').textContent='Turn camera off';
+ $('mic').setAttribute('aria-pressed','false');$('mic').disabled=false;
+ $('camera').setAttribute('aria-pressed','false');$('camera').disabled=false;
  $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
  syncCallDock();showMembers()
 }
 async function leaveCall(send=true){
- if(send&&socket.connected&&callActive)socket.emit('call:leave');
+ const pending=callJoining;
+ callAttempt++;
+ if(send&&socket.connected&&(callActive||pending))socket.emit('call:leave');
  callActive=false;callJoining=false;
  [...connections.keys()].forEach(removePeer);
  localStream?.getTracks().forEach(t=>t.stop());localStream=null;
@@ -1112,12 +1122,28 @@ async function onSignal({from,data}){
  try{
   const pc=await createPeer(from,false);if(!pc)return;
   if(data.description){
-   await pc.setRemoteDescription(new RTCSessionDescription(data.description));
+   const description=new RTCSessionDescription(data.description);
+   const collision=description.type==='offer'&&pc.signalingState!=='stable';
+   // Deterministic polite peer avoids simultaneous-offer glare on reconnect.
+   if(collision){
+    if(String(me)<String(from))return;
+    await pc.setLocalDescription({type:'rollback'});
+   }
+   if(description.type==='answer'&&pc.signalingState!=='have-local-offer')return;
+   await pc.setRemoteDescription(description);
    await drainCandidates(from,pc);
-   if(data.description.type==='offer'){const answer=await pc.createAnswer();await pc.setLocalDescription(answer);socket.emit('call:signal',{to:from,data:{description:pc.localDescription.toJSON()}})}
+   if(description.type==='offer'){
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    if(callActive&&socket.connected)socket.emit('call:signal',{to:from,data:{description:pc.localDescription.toJSON()}});
+   }
   }else if(data.candidate){
    if(pc.remoteDescription)await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-   else{if(!candidateQueues.has(from))candidateQueues.set(from,[]);candidateQueues.get(from).push(data.candidate)}
+   else{
+    if(!candidateQueues.has(from))candidateQueues.set(from,[]);
+    const queue=candidateQueues.get(from);
+    if(queue.length<128)queue.push(data.candidate);
+   }
   }
  }catch(e){console.error('Call signaling failed',e);tileStatus(from,'Connection error');toast('Call signaling error. Try leaving and rejoining.')}
 }
@@ -1138,51 +1164,92 @@ function offerAvailableCameras(ids){
 // All room members are receive-only subscribers by default. No media permissions.
 async function startSpectatorView(){
  if(!room||!socket.connected||callActive||callJoining)return;
+ const attempt=++callAttempt;
  callJoining=true;updateCallActions();
  try{
   await loadIceServers();
+  if(attempt!==callAttempt)return;
   if(!room||!socket.connected){callJoining=false;updateCallActions();return}
   socket.timeout(10000).emit('call:join',{role:'spectator'},(err,result)=>{
+   if(attempt!==callAttempt)return;
    callJoining=false;
-   if(err||result?.error){console.warn('Room camera viewing unavailable:',result?.error||err);updateCallActions();return}
+   if(err||result?.error){
+    console.warn('Room camera viewing unavailable:',result?.error||err);
+    $('callStatus').textContent='Unable to connect to cameras — retry from People';
+    updateCallActions();return
+   }
    callRole='spectator';callActive=true;callMembers=result.callMembers||callMembers;
    setCallUI(true);offerAvailableCameras(result.peers)
   })
- }catch(error){callJoining=false;updateCallActions();console.warn('Passive viewer could not start:',error)}
+ }catch(error){
+  if(attempt!==callAttempt)return;
+  callJoining=false;updateCallActions();
+  $('callStatus').textContent='Camera viewing unavailable — try reconnecting';
+  console.warn('Passive viewer could not start:',error)
+ }
 }
 // Camera joining is an explicit choice; the room can see and hear the camera owner.
 async function joinCall(){
  if(callJoining||!room||callRole==='camera')return;
  if(cameraMembers().length>=2)return toast('Both camera seats are currently occupied');
+ const attempt=++callAttempt;
  callJoining=true;updateCallActions();
  $('callStatus').textContent='Requesting camera permission…';
  try{
-  await getMedia();
+  const stream=await getMedia();
+  if(attempt!==callAttempt||!room||!socket.connected){
+   stream.getTracks().forEach(t=>t.stop());
+   if(localStream===stream)localStream=null;
+   return;
+  }
   await loadIceServers();
-  if(!socket.connected)throw Error('Connection lost; please reconnect to your room');
+  if(attempt!==callAttempt||!room||!socket.connected){
+   stream.getTracks().forEach(t=>t.stop());
+   if(localStream===stream)localStream=null;
+   return;
+  }
   socket.timeout(10000).emit('call:join',{role:'camera'},(err,result)=>{
+   if(attempt!==callAttempt)return;
    callJoining=false;
    if(err||result?.error){
     localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+    $('callStatus').textContent='Camera unavailable — try again';
     toast(result?.error||'Could not join on camera');updateCallActions();return
    }
-   // Existing passive connections are no longer valid after role promotion.
+   // Existing passive connections must be rebuilt when publishing starts.
    [...connections.keys()].forEach(removePeer);
    callRole='camera';callActive=true;sharingCall=true;
    callMembers=result.callMembers||callMembers;
-   displayTile('self',true).srcObject=localStream;
-   setCallUI(true);offerAvailableCameras(result.peers)
+   displayTile('self',true).srcObject=stream;
+   setCallUI(true);offerAvailableCameras(result.peers);
+   for(const track of stream.getTracks()){
+    track.addEventListener('ended',()=>{
+     if(attempt!==callAttempt||callRole!=='camera')return;
+     if(track.kind==='video'){
+      $('camera').textContent='Camera unavailable';
+      $('camera').disabled=true;
+      $('callStatus').textContent='Camera device disconnected';
+      toast('Camera disconnected. Leave and rejoin to recover.');
+     }else{
+      $('mic').textContent='Microphone unavailable';
+      $('mic').disabled=true;
+      toast('Microphone disconnected. Rejoin the call to recover.');
+     }
+    },{once:true});
+   }
   })
  }catch(error){
+  if(attempt!==callAttempt)return;
   callJoining=false;
   localStream?.getTracks().forEach(t=>t.stop());localStream=null;
+  $('callStatus').textContent='Camera permission or device unavailable';
   updateCallActions();toast(error.message||'Could not access your camera')
  }
 }
 $('call').onclick=joinCall;
 $('hangup').onclick=()=>{leaveCall(true);startSpectatorView()};
-$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t)return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
-$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t)return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
+$('mic').onclick=()=>{const t=localStream?.getAudioTracks()[0];if(!t||t.readyState!=='live')return;t.enabled=!t.enabled;$('mic').textContent=t.enabled?'Mute microphone':'Unmute microphone';$('mic').setAttribute('aria-pressed',String(!t.enabled))};
+$('camera').onclick=()=>{const t=localStream?.getVideoTracks()[0];if(!t||t.readyState!=='live')return;t.enabled=!t.enabled;$('camera').textContent=t.enabled?'Turn camera off':'Turn camera on';$('camera').setAttribute('aria-pressed',String(!t.enabled))};
 // Tapping any camera tile cycles compact → minimized bubble → enlarged → compact.
 // The media stream stays active: changing the preview size never mutes or ends the call.
 $('callOverlay').onclick=()=>cycleCallView();
