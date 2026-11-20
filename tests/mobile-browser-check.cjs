@@ -121,7 +121,9 @@ async function check(){
    assert.ok(layout.overflow<=2,'No horizontal scroll after joining');
   }
   await host.setViewportSize({width:390,height:844});
-  await host.locator('#mobileNav').waitFor({state:'visible'});
+  // When Discover is the initial screen, the mobile dock stays behind
+  // the sheet until the guest chooses content or closes Discover.
+  await host.locator('#mobileNav').waitFor({state:'hidden'});
   const url=host.url();
   assert.match(url,/\/room\/[a-f\d]{24}$/);
   await host.locator('#mobilePickerPanel').waitFor({state:'visible'});
