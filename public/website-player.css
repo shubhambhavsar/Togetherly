@@ -129,3 +129,50 @@
  .website-sync-panel{padding:10px}
  #websiteSyncStatus{flex-basis:100%}
 }
+
+/* Streambert-style title picker. Its results are metadata, not playback rights. */
+.movie-catalog{padding:0 0 15px;margin-bottom:13px;border-bottom:1px solid #2d4053}
+.catalog-search-form{display:flex;gap:8px;margin:10px 0 8px}
+.catalog-search-form input{
+ flex:1;min-width:0;padding:10px 12px;font-size:14px;
+ border-radius:7px;border:1px solid #40546b;background:#0d1a28;color:#f4f1eb
+}
+.catalog-search-form button{flex:none}
+.catalog-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:7px;margin:8px 0}
+.catalog-result{
+ display:flex;gap:9px;align-items:center;text-align:left;
+ min-width:0;padding:7px;border-radius:8px;
+ background:#152638;border:1px solid #435670;color:#eaf5ff;cursor:pointer;
+}
+.catalog-result:hover,.catalog-result:focus-visible{background:#25415b;outline-offset:2px}
+.catalog-result-poster{
+ width:34px;height:49px;flex:none;display:grid;place-items:center;
+ background:#31485e;border-radius:4px;overflow:hidden;
+}
+.catalog-result-poster img{width:100%;height:100%;object-fit:cover}
+.catalog-result-details{min-width:0;display:flex;flex-direction:column;gap:4px}
+.catalog-result-details strong{font-size:11px;line-height:1.25;overflow-wrap:anywhere}
+.catalog-result-details small{color:#b4c7d8;font-size:10px}
+.catalog-play-form{display:flex;gap:9px;flex-wrap:wrap;align-items:end}
+.catalog-play-form label{display:flex;flex:1 1 86px;flex-direction:column;gap:5px;font-size:11px;color:#b4c7d8;min-width:82px}
+.catalog-play-form input,.catalog-play-form select{
+ width:100%;min-width:0;padding:8px 7px;border:1px solid #40546b;border-radius:6px;
+ background:#0d1a28;color:#f4f1eb;font-size:13px;
+}
+.catalog-play-form label.hidden{display:none!important}
+.catalog-play-form button{flex:0 0 auto;min-height:34px}
+.catalog-help,.catalog-now-playing,.catalog-disclaimer{
+ font-size:11px;color:#b3c5d4;line-height:1.5;margin:9px 0 0;
+}
+.catalog-now-playing{color:#e8cb9f;font-weight:650}
+.catalog-disclaimer{font-size:10px;color:#91a9b9}
+.catalog-disclaimer a{color:#c7dcec;text-decoration:underline}
+@media(max-width:700px){
+ .catalog-search-form{flex-wrap:wrap}
+ .catalog-search-form input{flex-basis:100%;font-size:16px}
+ .catalog-search-form button{width:100%}
+ .catalog-results{grid-template-columns:1fr}
+ .catalog-play-form label{flex:1 1 38%;min-width:0}
+ .catalog-play-form button{width:100%}
+ .catalog-play-form input,.catalog-play-form select{font-size:16px}
+}
