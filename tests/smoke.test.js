@@ -929,6 +929,7 @@ test('mobile nav opens one sheet at a time, closes with backdrop and updates unr
   return{classList:{add:x=>flags.add(x),remove:x=>flags.delete(x),contains:x=>flags.has(x),
     toggle:(x,value)=>{if(value===undefined)value=!flags.has(x);value?flags.add(x):flags.delete(x);return value}},
    setAttribute:(k,v)=>attrs[k]=v,removeAttribute:k=>delete attrs[k],
+   addEventListener(){},
    getAttribute:k=>attrs[k],textContent:'',innerHTML:'',isConnected:true,
    focus(){this.focused=true},scrollIntoView(){this.scrolled=true}};
  }
