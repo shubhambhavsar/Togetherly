@@ -1174,6 +1174,10 @@ test('WebRTC reconnect waits for transient drops, restarts ICE, and cancels upon
  context.schedule('guest',pc);
  assert.equal(pending.length,2,'A new drop should receive a fresh grace period');
  assert.equal(pending.at(-1).delay,4500);
+ context.clearRecovery('guest');
+ pc.iceConnectionState='connected';pc.connectionState='disconnected';
+ context.schedule('guest',pc);
+ assert.equal(pending.length,3,'Disconnected aggregate transport still needs recovery even if ICE substate is healthy');
 });
 
 test('WebRTC recovery never restarts a peer who has left the room',()=>{
