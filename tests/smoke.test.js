@@ -627,7 +627,7 @@ test('movie-selection UI handles TV bounds, movie switch, changing title and sta
     contains:k=>flags.has(k),toggle:(k,on)=>on?flags.add(k):flags.delete(k)},
    addEventListener:(k,fn)=>listeners[k]=fn,
    emitInput:k=>listeners[k]?.(),
-   setAttribute(){},focus(){},scrollIntoView(){},
+   setAttribute(){},removeAttribute(){},focus(){},blur(){},scrollIntoView(){},
    get listeners(){return listeners}
   };
  };
@@ -647,6 +647,8 @@ test('movie-selection UI handles TV bounds, movie switch, changing title and sta
  };
  vm.runInNewContext(source+'\nthis.testSelect=catalogSelectTitle;this.testClear=catalogClearSelection;',context);
  context.testSelect({id:1399,type:'tv',title:'Breaking Bad',year:'2008'});
+ assert.equal($('movieCatalog').classList.contains('is-title-selected'),true,'Selected title uses detail step');
+ assert.equal($('catalogSelectedTitle').textContent,'Breaking Bad');
  assert.equal($('catalogType').value,'tv');
  assert.equal($('catalogPlay').disabled,true,'TV actions must wait for metadata');
  resolveSeasons({ok:true,json:async()=>({seasons:[{season:1,episodes:7},{season:2,episodes:13}]})});
@@ -682,6 +684,7 @@ test('movie-selection UI handles TV bounds, movie switch, changing title and sta
  callbacks.get(2)(null,{ok:true});
  assert.match($('catalogStatus').textContent,/Shared with room/);
  $('catalogChangeTitle').onclick();
+ assert.equal($('movieCatalog').classList.contains('is-title-selected'),false,'Back restores search results');
  assert.equal($('catalogPlayForm').classList.contains('hidden'),true);
  assert.equal($('catalogId').value,'');
 });
@@ -1050,4 +1053,20 @@ test('WebRTC collision handling uses polite rollback and bounds queued ICE candi
  pc.remoteDescription=null;pc.signalingState='stable';
  for(let i=0;i<140;i++)await context.handleSignal({from:'b',data:{candidate:{candidate:'test'+i}}});
  assert.equal(queues.get('b').length,128,'Queue must be bounded');
+});
+
+test('mobile movie finder has a dedicated responsive detail step',()=>{
+ const css=fs.readFileSync(path.join(root,'public/mobile-cinema.css'),'utf8');
+ for(const id of ['catalogResultHeading','catalogResultCount','catalogSelectedPoster',
+  'catalogSelectedDescription','catalogShareFeedback','catalogChangeTitle'])
+  assert.ok(html.includes('id="'+id+'"'));
+ assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=25'));
+ assert.ok(css.includes('.sr-only{')&&css.includes('clip-path:inset(50%)'));
+ assert.ok(css.includes('grid-template-columns:minmax(0,1fr) 77px'),'Find action must stay beside input');
+ assert.ok(css.includes('#watch #movieCatalog.is-title-selected #catalogResults'));
+ assert.ok(css.includes('#watch #movieCatalog.is-title-selected .catalog-selection-copy'));
+ assert.ok(css.includes('grid-template-columns:repeat(2,minmax(0,1fr))'));
+ assert.ok(css.includes('calc(46px + env(safe-area-inset-bottom))'));
+ assert.ok(frontend.includes("$('mobilePickerPanel').scrollTop=0"));
+ assert.ok(frontend.includes("$('catalogShareFeedback').textContent=message"));
 });
