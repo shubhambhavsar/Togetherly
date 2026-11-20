@@ -518,7 +518,7 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
 });
 
 test('unverified sources are not called safe and no antivirus bypass is attempted',()=>{
- assert.ok(html.includes('External player compatibility is enabled. It may open ads or new tabs. Never bypass an antivirus warning.'));
+ assert.ok(html.includes('The player is click-protected by default. Unlocking controls may still open third-party tabs. Never bypass an antivirus warning.'));
  assert.ok(!html.includes('option value="vidsrc"')&&!html.includes('option value="vidlove"'));
  assert.ok(!html.includes('id="openWebsite"'));
  assert.ok(!frontend.includes("window.confirm(message)"));
