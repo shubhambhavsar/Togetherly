@@ -143,6 +143,34 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 
 
 
+## Dual themes and automatic video-call recovery (review branch)
+
+Togetherly supports two visual experiences via a header switcher: **Private
+Cinema** (original dark) and **Living Room** (warm light with coral, plum,
+lavender). This preference is stored per browser in
+`localStorage['togetherly.appearance']`; it does not modify the room or
+other participants' visual settings. It persists across room links and reloads.
+The switch is keyboard-accessible, keeps the browser toolbar color in sync,
+and changes appearance without reinitializing the player, chat, or camera.
+
+**Call reliability:** Temporary WebRTC ICE disconnects are expected on mobile
+network switches, slow Wi-Fi, or tab/background changes. Togetherly now waits
+briefly for spontaneous recovery, then attempts bounded ICE renegotiations
+before replacing a stalled peer connection once. Successful connections and
+departing peers clear recovery timers. Returning from the background checks
+for interrupted peers. An explicit camera/microphone opt-in is always required
+after a **Socket.IO room reconnection**—Togetherly never silently restarts
+publishing; receive-only spectator viewing can resume automatically.
+
+A TURN relay remains essential for some mobile carriers, company networks,
+and restrictive NAT combinations. Configure the existing
+`METERED_TURN_DOMAIN` + `METERED_TURN_API_KEY` or the
+`TURN_URL` + `TURN_USERNAME` + `TURN_CREDENTIAL` trio in Render, **not**
+in this repository or a public message. The `/health` endpoint can report
+whether relay settings are configured, but cannot prove that the relay is
+working end-to-end. Real multi-network tests on iOS Safari and Android Chrome
+are still required; no browser-level retry policy guarantees 100% uptime.
+
 ## Movie room clock + quieter fullscreen (2026-11-20)
 
 Room movie sharing now carries a versioned **estimated timeline** alongside the
