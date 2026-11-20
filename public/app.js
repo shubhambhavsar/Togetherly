@@ -590,6 +590,7 @@ function applyState(s){
  if(!s)return;
  const old=lastState;
  lastState=s;version=s.version;
+ if(old?.source&&old.source!==s.source)setSourceTab(s.source==='website'?'movies':'youtube');
  $('catalogNowPlaying').textContent=s.catalog
   ?'Shared: '+s.catalog.title+' · '+s.catalog.label+
    (s.catalog.type==='tv'?' · S'+s.catalog.season+' E'+s.catalog.episode:'')
