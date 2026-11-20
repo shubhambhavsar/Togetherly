@@ -520,7 +520,7 @@ $('catalogPlayForm').onsubmit=event=>{
   if(error||ack?.error){
    $('catalogStatus').textContent=ack?.error||'Could not load this source';return;
   }
-  $('catalogStatus').textContent='Shared with room. Each viewer loads the same source independently; playback is not synchronized.';
+  $('catalogStatus').textContent='Shared with room. Guests load near the estimated room time; actual player timing may differ.';
  });
 };
 let ytScriptStarted=false,playerTimeout=null;
