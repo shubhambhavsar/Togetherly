@@ -94,6 +94,55 @@ async function wikidataTitleSearch(q){
  });
  return entries.slice(0,12);
 }
+// Validate a requested TV season and episode against TMDB metadata when
+// configured. Episode counts are metadata, not proof a third-party player works.
+const tvSeasonCache=new Map(),tvDetailsRate=new Map();
+const tmdbCredentials=()=>({
+ token:(process.env.TMDB_API_READ_TOKEN||'').trim(),
+ key:(process.env.TMDB_API_KEY||'').trim()
+});
+async function catalogTvSeasons(id){
+ if(!Number.isSafeInteger(id)||id<1||id>999999999)throw Error('Invalid series ID');
+ const now=Date.now(),cached=tvSeasonCache.get(id);
+ if(cached&&cached.until>now)return cached.seasons;
+ const {token,key}=tmdbCredentials();
+ if(!token&&!key)return null;
+ const url=new URL('https://api.themoviedb.org/3/tv/'+id);
+ url.searchParams.set('language','en-US');
+ if(!token)url.searchParams.set('api_key',key);
+ const response=await fetch(url,{
+  headers:token?{Authorization:'Bearer '+token}:{},
+  signal:AbortSignal.timeout(6500)
+ });
+ if(!response.ok)throw Error('TV episode metadata unavailable');
+ const body=await response.json();
+ const seasons=(Array.isArray(body.seasons)?body.seasons:[])
+  .filter(x=>Number.isSafeInteger(x.season_number)&&x.season_number>=1&&x.season_number<=99&&
+    Number.isSafeInteger(x.episode_count)&&x.episode_count>=1&&x.episode_count<=999)
+  .map(x=>({season:x.season_number,episodes:x.episode_count}))
+  .sort((a,b)=>a.season-b.season);
+ tvSeasonCache.set(id,{seasons,until:now+10*60*1000});
+ if(tvSeasonCache.size>100)tvSeasonCache.delete(tvSeasonCache.keys().next().value);
+ return seasons;
+}
+app.get('/api/catalog/tv/:id/seasons',async(req,res)=>{
+ res.set('Cache-Control','private, no-store');
+ const raw=String(req.params?.id||'');
+ if(!/^[1-9]\\d{0,8}$/.test(raw))return res.status(400).json({error:'Invalid TV series ID'});
+ const now=Date.now(),ip=String(req.ip||'unknown'),hits=tvDetailsRate.get(ip)||{until:now+60000,n:0};
+ if(now>hits.until){hits.until=now+60000;hits.n=0}
+ hits.n++;tvDetailsRate.set(ip,hits);
+ if(hits.n>30)return res.status(429).json({error:'Too many episode lookups. Try again shortly.'});
+ if(!tmdbCredentials().token&&!tmdbCredentials().key)
+  return res.status(503).json({error:'Episode counts unavailable without a TMDB credential'});
+ try{
+  const seasons=await catalogTvSeasons(Number(raw));
+  return res.json({seasons:seasons||[]});
+ }catch(error){
+  console.warn('TV episode lookup failed:',error.message);
+  return res.status(502).json({error:'Could not verify available seasons and episodes.'});
+ }
+});
 app.get('/api/catalog/search',async(req,res)=>{
  res.set('Cache-Control','private, no-store');
  const q=typeof req.query.q==='string'?req.query.q.trim():'';
@@ -325,10 +374,25 @@ s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.ur
 s.on('website',(_d,ack)=>{
  ack?.({error:'Arbitrary website sharing was disabled for safety. Use the verified room controls.'});
 });
-s.on('catalog:play',(d,ack)=>{
+s.on('catalog:play',async(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join a room before sharing a movie'});
  const choice=catalogPlayer(d);
  if(!choice)return ack?.({error:'Select a supported provider and valid TMDB movie or episode'});
+ // Reject nonexistent seasons/episodes when TMDB credentials are available.
+ if(choice.type==='tv'){
+  try{
+   const seasons=await catalogTvSeasons(choice.id);
+   if(seasons!==null){
+    const match=seasons.find(x=>x.season===choice.season);
+    if(!match||choice.episode>match.episodes)
+     return ack?.({error:'That season or episode does not exist in TMDB metadata.'});
+   }
+  }catch(error){
+   return ack?.({error:'Unable to verify TV episode details. Please retry.'});
+  }
+ }
+ // The member might have disconnected while awaiting the metadata lookup.
+ if(roomOf(s)!==r)return ack?.({error:'Room connection changed. Please try again.'});
  r.source='website';r.websiteUrl=choice.url;r.websiteTimeline=null;
  r.catalog={type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
    label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})};
