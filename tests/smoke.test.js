@@ -1010,7 +1010,7 @@ test('camera permission promises are canceled when leaving so late replies canno
  assert.equal(context.callAttempt,2);
  // A server response delivered after leaving also must not re-enable publishing.
  const secondTrack={stopped:false,stop(){this.stopped=true},addEventListener(){}};
- context.getMedia=async()=>({getTracks:()=>[secondTrack]});
+ context.getMedia=async()=>{const secondStream={getTracks:()=>[secondTrack]};context.localStream=secondStream;return secondStream};
  const second=context.testJoinCall();await second;
  assert.equal(events.filter(x=>x==='call:join').length,1);
  await context.testLeaveCall(true);
