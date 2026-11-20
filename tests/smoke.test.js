@@ -867,7 +867,7 @@ test('movie time formatting and VidFast join URL preserve exact canonical source
   'https://vidfast.vc/tv/1399/1/2');
  assert.ok(frontend.includes('websiteSelectedVersion!==s.version'),
   'New movie selection must reload even when sharing the same URL');
- assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted)'));
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline))'));
  assert.ok(frontend.includes('movieCatchupNow()'));
 });
 
