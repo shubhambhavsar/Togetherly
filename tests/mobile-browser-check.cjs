@@ -48,6 +48,70 @@ async function check(){
   await host.locator('#mobileNavChoose').click();
   await host.locator('#mobilePickerPanel').waitFor({state:'visible'});
   assert.equal(await host.locator('#mobileNavChoose').getAttribute('aria-expanded'),'true');
+  // Stable local metadata reproduces the Android screenshot without TMDB API dependency.
+  await host.route('**/api/catalog/search*',route=>route.fulfill({
+   status:200,contentType:'application/json',
+   body:JSON.stringify({source:'TMDB',results:[
+    {id:1668,type:'tv',title:'Friends',year:'1994',
+     poster:'https://image.tmdb.org/t/p/w92/friends.jpg',description:'Six friends make their way through life in New York.'},
+    {id:7842,type:'tv',title:'Thomas & Friends',year:'1984',
+     poster:'https://image.tmdb.org/t/p/w92/thomas.jpg',description:'Animated adventures of trains.'},
+    {id:1885,type:'tv',title:'Among Friends',year:'1998'}]})
+  }));
+  await host.route('**/api/catalog/tv/1668/seasons',route=>route.fulfill({
+   status:200,contentType:'application/json',body:JSON.stringify({
+    seasons:[{season:1,episodes:24},{season:2,episodes:24}]})
+  }));
+  await host.locator('#catalogQuery').fill('Friends');
+  await host.locator('#catalogSearchForm button[type="submit"]').click();
+  await host.locator('#catalogResults .catalog-result').first().waitFor({state:'visible'});
+  for(const width of [320,360,390,430]){
+   await host.setViewportSize({width,height:844});
+   const layout=await host.evaluate(()=>{
+    const rect=id=>document.getElementById(id).getBoundingClientRect();
+    const input=rect('catalogQuery'),action=document.querySelector('#catalogSearchForm button[type="submit"]').getBoundingClientRect();
+    const label=document.querySelector('#catalogSearchForm label').getBoundingClientRect();
+    const sheet=rect('mobilePickerPanel');
+    return{input:{x:input.x,y:input.y,width:input.width,height:input.height,right:input.right},
+     action:{x:action.x,y:action.y,width:action.width,height:action.height,right:action.right},
+     label:{width:label.width,height:label.height},
+     sheet:{x:sheet.x,right:sheet.right,width:sheet.width},
+     horizontalOverflow:document.documentElement.scrollWidth-innerWidth};
+   });
+   assert.ok(layout.input.width>=140,'Movie search input too narrow at '+width+': '+JSON.stringify(layout));
+   assert.ok(layout.label.width<=2,'Screen-reader-only label should not occupy space');
+   assert.ok(Math.abs(layout.input.y-layout.action.y)<=3,'Search button must share same row at '+width);
+   assert.ok(layout.input.right<=layout.action.x,'Search field must not overlap Find button');
+   assert.ok(layout.action.right<=width+2,'Find button must fit within screen');
+   assert.ok(layout.horizontalOverflow<=2,'No sideways scroll at '+width);
+  }
+  await host.setViewportSize({width:390,height:844});
+  await host.locator('#catalogResults .catalog-result').first().click();
+  await host.locator('#movieCatalog.is-title-selected').waitFor({state:'visible'});
+  assert.equal(await host.locator('#catalogResults').isVisible(),false,'Results must disappear after selection');
+  assert.equal(await host.locator('#catalogQuery').isVisible(),false,'Search should not compete with selection form');
+  assert.equal((await host.locator('#catalogSelectedTitle').textContent()).trim(),'Friends');
+  await host.locator('#catalogEpisodeHelp').waitFor({state:'visible'});
+  const selection=await host.evaluate(()=>{
+   const rect=id=>document.getElementById(id).getBoundingClientRect();
+   const title=rect('catalogSelectedTitle'),meta=rect('catalogSelectedMeta'),
+    button=rect('catalogChangeTitle'),poster=rect('catalogSelectedPoster');
+   return{title:{width:title.width,height:title.height},meta:{width:meta.width},
+    button:{width:button.width},poster:{width:poster.width},
+    scrollWidth:document.documentElement.scrollWidth-innerWidth};
+  });
+  assert.ok(selection.title.width>=150,'Selected title column collapsed: '+JSON.stringify(selection));
+  assert.ok(selection.meta.width>=150,'Title metadata column collapsed');
+  assert.ok(selection.poster.width>=60,'Selected poster missing');
+  assert.ok(selection.scrollWidth<=2,'Selected detail must not create horizontal scrolling');
+  await host.locator('#catalogPlay').scrollIntoViewIfNeeded();
+  const playBox=await host.locator('#catalogPlay').boundingBox();
+  assert.ok(playBox.width>=300&&playBox.height>=48,'Primary watch button must be wide and tappable');
+  await host.locator('#catalogChangeTitle').click();
+  await host.locator('#catalogResults .catalog-result').first().waitFor({state:'visible'});
+  assert.equal(await host.locator('#catalogPlayForm').isVisible(),false,'Back returns to search');
+  await host.locator('#catalogQuery').evaluate(el=>el.blur());
+
   assert.equal(await host.locator('#mobileSheetBackdrop').isVisible(),true);
   await host.locator('#tabYouTube').click();
   await host.locator('#youtubeSourcePanel').waitFor({state:'visible'});
