@@ -89,9 +89,17 @@ async function check(){
   await guest.locator('#chatSend').click();
   await host.waitForFunction(()=>document.querySelector('#chat')?.textContent?.includes('Togetherly browser regression'),{timeout:12000});
   await guest.locator('#closeChat').click();
+  await guest.locator('#chatPanel.chat-open').waitFor({state:'hidden'});
 
   await guest.setViewportSize({width:780,height:390});
-  await guest.locator('#mobileNav').waitFor({state:'visible'});
+  const landscape=await guest.evaluate(()=>({
+   innerWidth:innerWidth,innerHeight:innerHeight,body:document.body.className,
+   mobileMatch:matchMedia('(max-width:800px), (pointer:coarse) and (max-width:1050px)').matches,
+   navDisplay:getComputedStyle(document.getElementById('mobileNav')).display,
+   navRect:document.getElementById('mobileNav').getBoundingClientRect().toJSON()
+  }));
+  console.log('Landscape mobile diagnostic:',JSON.stringify(landscape));
+  await guest.locator('#mobileNav').waitFor({state:'visible',timeout:3000});
   await guest.locator('#mobileNavChoose').click();
   const bounds=await guest.locator('#mobilePickerPanel').boundingBox();
   assert.ok(bounds.width<=784&&bounds.height<=390,'Discover sheet overflows phone landscape');
