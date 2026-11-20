@@ -243,12 +243,12 @@
  flex-direction:row!important;align-items:flex-start!important;gap:14px!important;
  min-width:0;width:100%}
 #watch .catalog-play-form .catalog-selection-copy{flex:1 1 auto!important;
- display:flex!important;flex-direction:column!important;align-items:flex-start!important;
+ display:flex!important;flex-direction:column!important;align-items:stretch!important;
  min-width:0!important;width:auto!important;gap:6px}
-#watch #catalogSelectedTitle{display:block;min-width:0;max-width:100%;
+#watch #catalogSelectedTitle{display:block;width:100%!important;min-width:0;max-width:100%;
  overflow-wrap:break-word;word-break:normal;font-weight:780;letter-spacing:-.03em;
  font-size:clamp(20px,2vw,25px);line-height:1.17;color:#fff8ef}
-#watch #catalogSelectedMeta{display:block;font-size:12px;line-height:1.35;color:#c3d0d9}
+#watch #catalogSelectedMeta{display:block;width:100%!important;font-size:12px;line-height:1.35;color:#c3d0d9}
 #watch .catalog-selected-poster{display:block;width:76px;height:112px;flex:0 0 76px;
  border-radius:8px;object-fit:cover;background:#1d3544;border:1px solid #496276}
 #watch .catalog-selected-poster.hidden{display:none!important}
@@ -367,7 +367,7 @@
   width:76px!important;height:108px!important;flex:0 0 76px!important}
  #watch #movieCatalog.is-title-selected .catalog-selection-copy{
   display:flex!important;min-width:0!important;flex:1 1 auto!important;
-  width:0!important;gap:7px!important;overflow-wrap:break-word!important}
+  width:0!important;gap:7px!important;align-items:stretch!important;overflow-wrap:break-word!important}
  #watch #movieCatalog.is-title-selected #catalogSelectedTitle{
   display:block!important;font-size:22px!important;line-height:1.14!important;
   font-weight:780!important;max-width:100%!important;overflow-wrap:break-word!important}
