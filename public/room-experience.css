@@ -102,10 +102,8 @@
  #watch.room-discover-first .watch-stage>.source-library .source-panel:not(.hidden){display:block!important}
  /* The discovery page is the primary experience before a title is chosen.
     The empty player is still reachable through the room Watch navigation. */
- #watch.room-discover-first .watch-stage>#videoShell{
-  order:-1;min-height:190px;max-height:220px;
- }
- #watch.room-discover-first .watch-stage>.player-toolbar{order:0}
+ #watch.room-discover-first .watch-stage>#videoShell{display:none!important}
+ #watch.room-discover-first .watch-stage>.player-toolbar{display:none!important}
  #watch.room-discover-first .watch-stage>.notice{order:1}
  #watch.room-discover-first .watch-queue{margin-top:0}
 
