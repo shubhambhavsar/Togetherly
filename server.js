@@ -4,6 +4,71 @@ const app=express(),server=http.createServer(app),io=new Server(server,{maxHttpB
 const rooms=new Map();
 const MAX_CAMERA_PARTICIPANTS=2;
 const MAX_ROOM_PARTICIPANTS=8;
+
+/**
+ * Independent Streambert-style adapter pattern. Providers are not verified
+ * or endorsed; we never scrape, proxy, download or circumvent media controls.
+ */
+const CATALOG_SOURCES=Object.freeze({
+ vidsrc:{label:'VidSrc',host:'vsembed.su',
+  movie:id=>'https://vsembed.su/embed/movie/'+id,
+  tv:(id,s,e)=>'https://vsembed.su/embed/tv/'+id+'/'+s+'/'+e},
+ vidfast:{label:'Vidfast',host:'vidfast.vc',
+  movie:id=>'https://vidfast.vc/movie/'+id,
+  tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e},
+ vidlove:{label:'Vidlove',host:'player.vidlove.cc',
+  movie:id=>'https://player.vidlove.cc/embed/movie/'+id,
+  tv:(id,s,e)=>'https://player.vidlove.cc/embed/tv/'+id+'/'+s+'/'+e}
+});
+function catalogPlayer(d){
+ if(!d||typeof d!=='object'||!Object.hasOwn(CATALOG_SOURCES,d.provider)||
+  !['movie','tv'].includes(d.type))return null;
+ const p=CATALOG_SOURCES[d.provider],id=Number(d.id),season=Number(d.season),episode=Number(d.episode);
+ if(!Number.isSafeInteger(id)||id<1||id>999999999)return null;
+ if(d.type==='tv'&&(!Number.isSafeInteger(season)||season<1||season>99||
+  !Number.isSafeInteger(episode)||episode<1||episode>999))return null;
+ const raw=d.type==='movie'?p.movie(id):p.tv(id,season,episode);
+ const url=validateWebsiteUrl(raw);
+ if(!url||new URL(url).hostname!==p.host)return null;
+ const title=typeof d.title==='string'?d.title.trim().replace(/[\x00-\x1f<>]/g,'').slice(0,110):'';
+ return {url,title:title||(d.type==='movie'?'Movie':'Series'),
+  type:d.type,id,provider:d.provider,label:p.label,
+  ...(d.type==='tv'?{season,episode}:{})};
+}
+const movieCatalogCache=new Map(),movieCatalogRate=new Map();
+app.get('/api/catalog/search',async(req,res)=>{
+ res.set('Cache-Control','private, no-store');
+ const q=typeof req.query.q==='string'?req.query.q.trim():'';
+ if(q.length<2||q.length>80)return res.status(400).json({error:'Enter a title between 2 and 80 characters'});
+ const token=(process.env.TMDB_API_READ_TOKEN||'').trim();
+ const key=(process.env.TMDB_API_KEY||'').trim();
+ if(!token&&!key)return res.status(503).json({error:'Movie search needs a TMDB API token on the server. You can still enter a TMDB ID below.'});
+ const now=Date.now(),ip=String(req.ip||'unknown'),hits=movieCatalogRate.get(ip)||{until:now+60000,n:0};
+ if(hits.until<now){hits.until=now+60000;hits.n=0}
+ hits.n++;movieCatalogRate.set(ip,hits);
+ if(hits.n>20)return res.status(429).json({error:'Please slow down and try again'});
+ const cached=movieCatalogCache.get(q.toLowerCase());
+ if(cached&&cached.until>now)return res.json({results:cached.items});
+ try{
+  const url=new URL('https://api.themoviedb.org/3/search/multi');
+  url.searchParams.set('query',q);url.searchParams.set('include_adult','false');
+  url.searchParams.set('language','en-US');url.searchParams.set('page','1');
+  if(!token)url.searchParams.set('api_key',key);
+  const response=await fetch(url,{headers:token?{Authorization:'Bearer '+token}:{},signal:AbortSignal.timeout(7500)});
+  if(!response.ok)throw Error('TMDB '+response.status);
+  const data=await response.json();
+  const items=(Array.isArray(data.results)?data.results:[])
+   .filter(x=>['movie','tv'].includes(x.media_type)&&Number.isSafeInteger(x.id)&&x.id>0)
+   .slice(0,12).map(x=>({
+    id:x.id,type:x.media_type,title:String(x.title||x.name||'Untitled').slice(0,110),
+    year:String(x.release_date||x.first_air_date||'').slice(0,4),
+    poster:/^\/[A-Za-z0-9_./-]+$/.test(x.poster_path||'')?'https://image.tmdb.org/t/p/w92'+x.poster_path:null
+   }));
+  movieCatalogCache.set(q.toLowerCase(),{items,until:now+10*60*1000});
+  if(movieCatalogCache.size>100)movieCatalogCache.delete(movieCatalogCache.keys().next().value);
+  res.json({results:items});
+ }catch{res.status(502).json({error:'TMDB search is unavailable. You can enter a TMDB ID manually.'})}
+});
 app.disable('x-powered-by');
 app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self), geolocation=(), payment=(), display-capture=(), clipboard-read=(), clipboard-write=(self), usb=(), serial=(), bluetooth=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()');next()});
 app.use(express.static(path.join(__dirname,'public')));
@@ -151,11 +216,11 @@ const websiteTimeline=r=>{
 const state=r=>({source:r.source||'youtube',websiteUrl:r.websiteUrl||'',video:r.video,
  playing:r.source==='website'?false:r.playing,
  position:r.position+(r.playing&&r.source!=='website'?(Date.now()-r.at)/1000:0),
- version:r.version,websiteLeader:r.websiteLeader||null,websiteTimeline:websiteTimeline(r)});
+ version:r.version,catalog:r.catalog||null,websiteLeader:r.websiteLeader||null,websiteTimeline:websiteTimeline(r)});
 const members=r=>[...r.users].map(([id,name])=>({id,name}));
 const callMembers=r=>[...r.callUsers].map(([id,meta])=>({id,role:meta.role,sharing:!!meta.sharing}));
 const publishCall=r=>io.to(r.id).emit('call:members',callMembers(r));
-function newRoom(id){return {id,users:new Map(),websiteLeader:null,websiteTimeline:null,source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
+function newRoom(id){return {id,users:new Map(),websiteLeader:null,websiteTimeline:null,catalog:null,source:'youtube',websiteUrl:'',video:'M7lc1UVf-VE',playing:false,position:0,at:Date.now(),version:0,messages:[],callUsers:new Map(),queue:[],emptySince:Date.now()}}
 setInterval(()=>{const cutoff=Date.now()-12*60*60*1000;for(const [id,r] of rooms){if(!r.users.size&&r.emptySince<cutoff)rooms.delete(id)}},30*60*1000).unref();
 
 function leaveCall(s) {
@@ -179,14 +244,25 @@ s.on('room:rename',(d,ack)=>{
  r.users.set(s.id,newName);io.to(r.id).emit('members',members(r));
  ack?.({ok:true});
 });
-s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
+s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.catalog=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
 s.on('website',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const websiteUrl=validateWebsiteUrl(d?.url);
  if(!websiteUrl)return ack?.({error:'Enter a public HTTPS website URL without passwords or access tokens'});
- r.source='website';r.websiteUrl=websiteUrl;r.websiteTimeline=null;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ r.source='website';r.websiteUrl=websiteUrl;r.websiteTimeline=null;r.catalog=null;r.playing=false;r.position=0;r.at=Date.now();r.version++;
  io.to(r.id).emit('state',state(r));ack?.({ok:true});
+});
+s.on('catalog:play',(d,ack)=>{
+ const r=roomOf(s);if(!r)return ack?.({error:'Join a room before sharing a movie'});
+ const choice=catalogPlayer(d);
+ if(!choice)return ack?.({error:'Select a supported provider and valid TMDB movie or episode'});
+ r.source='website';r.websiteUrl=choice.url;r.websiteTimeline=null;
+ r.catalog={type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
+   label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})};
+ r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ io.to(r.id).emit('state',state(r));
+ ack?.({ok:true,url:choice.url});
 });
 s.on('discover:search',async(d,ack)=>{
  if(typeof ack!=='function')return;
@@ -211,7 +287,7 @@ s.on('queue:add',(d,ack)=>{
 s.on('queue:play',(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  const i=r.queue.findIndex(x=>x.id===d?.id);if(i<0)return ack?.({error:'Video not found in queue'});
- const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
+ const item=r.queue.splice(i,1)[0];r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.catalog=null;r.video=item.video;r.playing=false;r.position=0;r.at=Date.now();r.version++;
  io.to(r.id).emit('state',state(r));io.to(r.id).emit('queue:update',r.queue);ack?.({ok:true})
 });
 s.on('queue:remove',(d,ack)=>{
