@@ -142,33 +142,31 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 **Do not merge or deploy this feature until the user explicitly says `deploy`.**
 
 
-## Proposed: Streambert-style movie and TV source picker (review-only)
 
-Togetherly now has an independently implemented **Movies & Series** prototype on the review branch. It follows the general pattern used in [Streambert's source configuration](https://github.com/truelockmc/streambert/blob/main/src/utils/api.js): discover a film/series ID, choose a third-party playback source, and generate that provider's embed URL. It does **not** copy Streambert's GPL application code.
+## Movie & Series source picker (deployed baseline)
 
-**User experience:** Join a room → search a title using TMDB metadata (or enter its TMDB ID) → choose movie/TV (season and episode if needed) → choose a provider → select **Play in room**. Togetherly validates the ID/provider on its own server, generates the iframe URL, then broadcasts it using its existing room state so every guest sees the same source player.
+The **Movies & Series** section follows the general source-adapter pattern in [Streambert](https://github.com/truelockmc/streambert/blob/main/src/utils/api.js), independently implemented without copying GPL program code. It generates experimental third-party player addresses from an internal movie identifier and shares them with room members. It does **not** retrieve copyrighted streams, inspect player internals, synchronize external providers, or grant playback rights.
 
-### Metadata search setup
+### Pending improvement: title-first instant suggestions
 
-Add **one** of the following environment variables to the Togetherly service on Render:
+This review branch removes technical TMDB ID entry from the normal interface:
 
-- \`TMDB_API_READ_TOKEN\` — preferred TMDB API Read Access Token (Bearer authentication).
-- \`TMDB_API_KEY\` — alternate TMDB v3 API key.
+1. Open Togetherly's Movies & Series section.
+2. Type a movie or series **name**; suggestions appear automatically after a 390 ms pause. Example title chips are also available.
+3. Click a result card (poster when available, otherwise a movie/TV icon). The server resolves the ID invisibly.
+4. For TV shows, choose season and episode; select a third-party playback source.
+5. Select **Watch with room**; Togetherly shares the selected player website with room guests.
 
-Never put credentials in \`public/\` or commit them to GitHub. The metadata search endpoint \`GET /api/catalog/search?q=...\` holds the credential server-side, validates input, caches responses briefly and applies a per-IP request limit. If TMDB credentials are missing, search shows a clear configuration error; manual ID entry remains usable. TMDB provides movie **metadata, not actual movies or streaming permissions**. Review the [TMDB API terms](https://developer.themoviedb.org/docs/faq), especially attribution/logo and commercial usage requirements, before public use.
+The GET /api/catalog/search endpoint returns public title results and the source used. It validates query length, rate-limits IPs, and caches results for ten minutes.
 
-### Experimental third-party players
+- With a server-side TMDB_API_READ_TOKEN or TMDB_API_KEY, Togetherly uses TMDB metadata and posters where available. Save credentials only in Render, never in GitHub or public client files.
+- Without TMDB credentials, Togetherly searches Wikidata public records and retrieves TMDB movie or series identifiers from properties P4947/P4983. Users still do **not** need to enter IDs. Wikidata coverage is incomplete and poster images usually aren't available; the UI labels limited Wikidata results. If configured TMDB lookup fails, the server tries Wikidata.
+- If both metadata sources are unavailable, Togetherly shows a clear search error rather than asking for a technical ID.
 
-The initial allowlist is **VidSrc, Vidfast, Vidlove**, with provider-specific movie and episode URL templates. The URLs are examples drawn from Streambert's documented source strategy and are not verified as working, safe, licensed, or appropriate for public screening. **Only use content you and your guests are authorized to watch.** Togetherly does not proxy or download streams, alter HTTP headers, capture media playlists or tokens, defeat DRM, or bypass \`X-Frame-Options\` / CSP protections. Each participant loads the iframe in their own browser, so embedding, autoplay, regional availability, and source video cuts may vary.
+Review [TMDB terms](https://developer.themoviedb.org/docs/faq), metadata licensing, and image attribution before commercial use. The UI credits TMDB and Wikidata. A movie's presence in either catalogue does **not** grant rights to screen or redistribute the film.
 
-This is **not synchronized movie playback**. Browser same-origin restrictions prevent Togetherly from controlling another provider's player through an ordinary iframe. The optional experimental FlexFlix-only browser companion remains separate and does not automatically apply to these other providers.
+### Experimental player limitations
 
-### Release checklist
+The existing VidSrc, Vidfast, and Vidlove providers are unverified. Browser embedding restrictions, ads, regional restrictions, terms of service, autoplay, and copyright permissions still apply. The app does not proxy or download media, intercept playlists, or bypass DRM or frame protections. Cross-origin movies remain **unsynchronized**. The optional FlexFlix-only companion does not apply to these providers.
 
-1. Review the third-party provider terms and obtain permission for any public screening or integration.
-2. Add a TMDB credential to Render and confirm that the API/search UI works.
-3. Test the selected embed sources in actual Chrome, Firefox and mobile browsers, including fullscreen and source refusal.
-4. Confirm required TMDB attribution/logo and commercial licensing, if applicable.
-5. Keep the existing YouTube and manual Website Player as fallback; test room reconnection and provider changes.
-
-**The feature is on a review branch. Do not merge or deploy until the user explicitly requests \`deploy\`.**
+**Review only:** Test title lookup against real TMDB/Wikidata responses, mobile UI, provider embed behavior, and provider rights before production. Do not merge or deploy without an explicit user request to deploy.
