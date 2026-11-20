@@ -1,8 +1,10 @@
 /* Mobile landing: one intentional column with consistent gutters.
    Scoped to the welcome screen; does not alter the watch-room layout. */
+/* Never let responsive layout rules override room navigation visibility. */
+#landing.landing[hidden]{display:none!important}
 @media(max-width:860px), (pointer:coarse) and (max-width:1050px){
   #landing.landing{
-    display:grid!important;
+    display:grid;
     grid-template-columns:minmax(0,1fr)!important;
     align-items:start!important;
     justify-items:stretch!important;
