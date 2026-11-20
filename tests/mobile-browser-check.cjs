@@ -255,21 +255,38 @@ async function check(){
   await host.evaluate(()=>{
    document.getElementById('videoShell').classList.add('website-mode');
    document.getElementById('websitePlayer').classList.remove('hidden');
-   loadWebsiteFrame('https://vidfast.vc/movie/603',true);
+   websiteSelectedUrl='https://vidfast.vc/movie/603';
+   websiteStoppedFor=null;
+   loadWebsiteFrame(websiteSelectedUrl,true);
   });
   const movieFrame=host.locator('#websiteFrame');
   assert.equal(await movieFrame.getAttribute('sandbox'),null,
-   'Verified movie playback should use unsandboxed compatibility');
+   'Verified movie playback should remain unsandboxed for compatibility');
   assert.equal(await movieFrame.getAttribute('allowfullscreen'),null);
+  const shield=host.locator('#websiteClickShield');
+  await shield.waitFor({state:'visible'});
+  assert.equal(await host.locator('#websiteInteractionToggle').getAttribute('aria-pressed'),'false');
+  await shield.click({position:{x:15,y:18}});
+  const testFrame=host.frameLocator('#websiteFrame').locator('body');
+  assert.equal(await testFrame.getAttribute('data-clicked'),null,
+   'Protected video taps must not reach the third-party player');
+  assert.equal(unwantedTabs.length,0,'Protected video clicks must not launch tabs');
+  await host.locator('#websiteUnlock').click();
+  await shield.waitFor({state:'hidden'});
+  assert.equal(await host.locator('#websiteInteractionToggle').getAttribute('aria-pressed'),'true');
   await host.frameLocator('#websiteFrame').locator('#simulatedPlayer').click();
   await host.frameLocator('#websiteFrame').locator('body[data-clicked="yes"]').waitFor({state:'attached'});
-  const testFrame=host.frameLocator('#websiteFrame').locator('body');
   assert.ok(['opened','blocked'].includes(await testFrame.getAttribute('data-popup')),
-   'Player click should execute (popup policy varies by browser)');
+   'Unlocked controls may allow popups; provider and browser policy vary');
   assert.equal(await testFrame.getAttribute('data-native-fullscreen'),'blocked');
-  // Browser may allow popups from a compatibility iframe; do not claim they
-  // are blocked when the sandbox is intentionally disabled.
-  assert.ok(unwantedTabs.length<=1,'Only one simulated popup attempt is expected');
+  // We explicitly do not claim every unlocked click is safe.
+  assert.ok(unwantedTabs.length<=1,'Only one intentional unlocked popup attempt is expected');
+  await host.locator('#websiteInteractionToggle').click();
+  await shield.waitFor({state:'visible'});
+  const countAfterLock=unwantedTabs.length;
+  await shield.click({position:{x:15,y:18}});
+  assert.equal(unwantedTabs.length,countAfterLock,'Relocked movie clicks must not create new tabs');
+  assert.equal(await host.locator('#websiteInteractionToggle').getAttribute('aria-pressed'),'false');
   assert.equal(host.url(),url,'Third-party player must not navigate Togetherly');
   await host.locator('#toolbarFullscreen').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'visible'});
@@ -278,6 +295,7 @@ async function check(){
   await host.locator('#videoShell.theater-mode').waitFor({state:'hidden'});
   await host.evaluate(()=>{
    unloadWebsiteFrame();
+   websiteSelectedUrl=null;
    document.getElementById('videoShell').classList.remove('website-mode');
    document.getElementById('websitePlayer').classList.add('hidden');
   });

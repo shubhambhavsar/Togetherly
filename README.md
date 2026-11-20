@@ -245,13 +245,24 @@ without the iframe sandbox** to restore compatibility with player scripts,
 storage and embedded playback. Any non-verified future source must remain
 sandboxed. Source URL verification and `frame-src` CSP remain in place.
 
-**Security tradeoff:** an unsandboxed third-party player may open a new browser
-tab on a click, show inline ads, or try to navigate the parent. The browser's
-`beforeunload` navigation warning is only best-effort; a regular website
-cannot guarantee blocking child-iframe popups while removing its sandbox.
-Do not click unexpected advertisements or bypass antivirus warnings, and never
-enter credentials into a third-party player. Stop movie unloads the iframe
-without disconnecting calls or chat.
+**Accidental-click protection (local to each device):** the movie displays
+normally with a transparent click shield on top of the cross-origin iframe.
+Taps on the video while protected are intercepted by Togetherly instead of
+being passed to the provider. To use embedded Play, Pause, subtitle or server
+controls, press **Use controls**. Access lasts 12 seconds, then automatically
+relocks; **Lock player** in the toolbar also relocks it manually. Catch-up,
+movie changes and Stop movie reset protection. This feature is client-only,
+doesn't affect room timing or other viewers, and preserves the provider's
+unsandboxed playback compatibility.
+
+**Security tradeoff:** an unsandboxed third-party player can still open a new
+browser tab while controls are **unlocked**, display inline ads, or attempt
+parent navigation. The browser's `beforeunload` warning is only best-effort.
+A normal website cannot guarantee blocking popups inside an unrestricted
+cross-origin iframe, and the transparent shield does **not** stop scripted
+popups that need no click. Avoid unexpected ads and antivirus overrides, and
+never enter credentials into a third-party player. Stop movie unloads the
+iframe without disconnecting chat or cameras.
 
 The embedded provider's *native fullscreen* remains disabled via iframe
 allow-list and `Permissions-Policy: fullscreen=(self)`; use **Togetherly
