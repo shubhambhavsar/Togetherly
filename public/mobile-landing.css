@@ -1,0 +1,186 @@
+/* Mobile landing: one intentional column with consistent gutters.
+   Scoped to the welcome screen; does not alter the watch-room layout. */
+@media(max-width:860px), (pointer:coarse) and (max-width:1050px){
+  #landing.landing{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    align-items:start!important;
+    justify-items:stretch!important;
+    gap:clamp(20px,5vw,30px)!important;
+    min-height:0!important;
+    width:min(calc(100% - 32px),520px)!important;
+    max-width:520px!important;
+    margin:0 auto!important;
+    padding:20px 0 calc(35px + env(safe-area-inset-bottom))!important;
+  }
+  #landing .landing-copy,
+  #landing .landing-entry{
+    min-width:0!important;
+    width:100%!important;
+    max-width:100%!important;
+    margin:0!important;
+    box-sizing:border-box!important;
+  }
+  #landing .landing-copy .eyebrow{
+    display:block;
+    margin:0 0 12px;
+    max-width:100%;
+    font-size:10px;
+    font-weight:800;
+    line-height:1.4;
+    letter-spacing:.14em;
+  }
+  #landing .landing-copy h1{
+    margin:0 0 14px!important;
+    padding:0!important;
+    font:normal clamp(38px,9vw,55px)/1.08 Georgia,"Times New Roman",serif!important;
+    letter-spacing:-.035em!important;
+    overflow-wrap:normal;
+    max-width:100%;
+  }
+  #landing .landing-copy h1 em{display:inline-block;font-weight:normal}
+  #landing .landing-copy p{
+    font-size:clamp(13px,3.4vw,15px)!important;
+    line-height:1.56!important;
+    letter-spacing:0!important;
+    max-width:48ch!important;
+    margin:0!important;
+  }
+  #landing .landing-extras{
+    display:flex!important;
+    flex-wrap:wrap!important;
+    align-items:center!important;
+    justify-content:flex-start!important;
+    gap:7px!important;
+    margin:16px 0 0!important;
+    width:100%;
+    min-width:0;
+    line-height:1.35;
+  }
+  #landing .landing-extras span{
+    display:inline-flex;
+    align-items:center;
+    min-width:0;
+    max-width:100%;
+    padding:7px 9px;
+    border-radius:999px;
+    border:1px solid var(--vibe-border,#40566a);
+    background:var(--vibe-panel,#172a3b);
+    color:var(--vibe-muted,#9cb0c1);
+    font-size:10px;
+    font-weight:650;
+    letter-spacing:0;
+    white-space:normal;
+  }
+  #landing .landing-entry{
+    display:block;
+    padding:clamp(19px,5vw,27px)!important;
+    border-radius:18px!important;
+    overflow:hidden;
+  }
+  #landing .entry-top{
+    display:flex!important;
+    align-items:center!important;
+    min-width:0;
+    gap:9px!important;
+    font-size:10px!important;
+    letter-spacing:.13em!important;
+    line-height:1.4;
+  }
+  #landing .entry-icon{
+    width:32px;
+    height:32px;
+    flex:0 0 32px;
+  }
+  #landing .landing-entry h2{
+    font-size:clamp(23px,5.6vw,29px)!important;
+    line-height:1.15!important;
+    letter-spacing:-.025em!important;
+    margin:16px 0 9px!important;
+    overflow-wrap:break-word;
+  }
+  #landing .landing-entry > p{
+    margin:0 0 21px!important;
+    font-size:12px!important;
+    line-height:1.5!important;
+  }
+  #landing .landing-entry label{
+    margin:0 0 9px!important;
+    font-size:10px!important;
+    line-height:1.3;
+  }
+  #landing #name{
+    display:block;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    height:48px!important;
+    min-height:48px!important;
+    padding:11px 13px!important;
+    margin:0 0 11px!important;
+    border-radius:11px!important;
+    font-size:16px!important; /* avoids iOS focus zoom */
+    line-height:1.2;
+  }
+  #landing #create,
+  #landing #join{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:space-between!important;
+    gap:10px!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    min-height:48px!important;
+    padding:12px 13px!important;
+    margin:0!important;
+    font-size:13px!important;
+    line-height:1.25!important;
+    text-align:left;
+    white-space:normal!important;
+    border-radius:11px!important;
+  }
+  #landing .join-box.hidden{display:none!important}
+  #landing .join-box:not(.hidden){display:block!important;margin:0!important}
+  #landing .join-divider{
+    display:flex!important;
+    align-items:center!important;
+    gap:9px!important;
+    margin:19px 0 12px!important;
+    letter-spacing:.08em!important;
+    font-size:9px!important;
+    white-space:nowrap!important;
+  }
+  #landing .join-divider:before,
+  #landing .join-divider:after{min-width:0}
+  #landing .entry-footer{
+    display:flex!important;
+    flex-wrap:wrap!important;
+    align-items:center!important;
+    justify-content:space-between!important;
+    gap:8px 10px!important;
+    margin:20px 0 0!important;
+    padding:14px 0 0!important;
+    font-size:9px!important;
+    line-height:1.45!important;
+    letter-spacing:.02em!important;
+    max-width:100%;
+  }
+  #landing .entry-footer span{white-space:nowrap;min-width:0}
+}
+@media(max-width:360px){
+  #landing.landing{width:calc(100% - 28px)!important;padding-top:16px!important}
+  #landing .landing-copy h1{font-size:clamp(36px,10.5vw,41px)!important}
+  #landing .landing-entry{padding:18px!important}
+  #landing .entry-footer{gap:7px!important;font-size:8px!important}
+  .site-header .brand{font-size:21px!important}
+  .site-header #themeToggle{padding:8px 10px!important;gap:6px!important}
+}
+@media(max-width:315px){
+  .site-header #themeToggleLabel{display:none!important}
+  .site-header #themeToggle{min-width:44px!important;padding:8px!important}
+  #landing .landing-entry h2{font-size:23px!important}
+}
+@media(min-width:601px) and (max-width:860px){
+  #landing.landing{padding-top:35px!important;max-width:560px!important}
+}
