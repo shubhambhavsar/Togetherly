@@ -1418,8 +1418,8 @@ test('compact overlaid movie controls remain protected, auto-hide, and combine f
  assert.ok(html.includes('id="movieLocalFullscreen"'));
  assert.ok(html.includes('room-experience.css?v=1'));
  assert.ok(frontend.includes('const MOVIE_CONTROLS_IDLE_MS=3200'));
- assert.ok(frontend.includes("if(movieControlsVisible)hideMovieControls()"));
- assert.ok(frontend.includes('else showMovieControls()'));
+ assert.ok(frontend.includes("if(event.target.closest('button'))return;"));
+ assert.ok(frontend.includes("showMovieControls();\n};\n$('websiteClickShield').addEventListener('pointermove'"));
  assert.ok(frontend.includes("event.pointerType==='mouse'"));
  assert.ok(frontend.includes('if(movieLocalPaused)return'));
  assert.ok(frontend.includes("await toggleTheater()"));
