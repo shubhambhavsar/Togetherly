@@ -9,16 +9,12 @@ const MAX_ROOM_PARTICIPANTS=8;
  * Independent Streambert-style adapter pattern. Providers are not verified
  * or endorsed; we never scrape, proxy, download or circumvent media controls.
  */
+// Restrict embedded sources: two formerly listed domains have phishing flags.
+// VidFast is unverified and may still redirect; browser security warnings prevail.
 const CATALOG_SOURCES=Object.freeze({
- vidsrc:{label:'VidSrc',host:'vsembed.su',
-  movie:id=>'https://vsembed.su/embed/movie/'+id,
-  tv:(id,s,e)=>'https://vsembed.su/embed/tv/'+id+'/'+s+'/'+e},
- vidfast:{label:'Vidfast',host:'vidfast.vc',
+ vidfast:{label:'Vidfast (unverified)',host:'vidfast.vc',
   movie:id=>'https://vidfast.vc/movie/'+id,
-  tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e},
- vidlove:{label:'Vidlove',host:'player.vidlove.cc',
-  movie:id=>'https://player.vidlove.cc/embed/movie/'+id,
-  tv:(id,s,e)=>'https://player.vidlove.cc/embed/tv/'+id+'/'+s+'/'+e}
+  tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
 function catalogPlayer(d){
  if(!d||typeof d!=='object'||!Object.hasOwn(CATALOG_SOURCES,d.provider)||
@@ -98,6 +94,63 @@ async function wikidataTitleSearch(q){
  });
  return entries.slice(0,12);
 }
+// Validate a requested TV season and episode against TMDB metadata when
+// configured. Episode counts are metadata, not proof a third-party player works.
+const tvSeasonCache=new Map(),tvDetailsRate=new Map(),tvSeasonPending=new Map();
+const tmdbCredentials=()=>({
+ token:(process.env.TMDB_API_READ_TOKEN||'').trim(),
+ key:(process.env.TMDB_API_KEY||'').trim()
+});
+async function catalogTvSeasons(id){
+ if(!Number.isSafeInteger(id)||id<1||id>999999999)throw Error('Invalid series ID');
+ const now=Date.now(),cached=tvSeasonCache.get(id);
+ if(cached&&cached.until>now)return cached.seasons;
+ const {token,key}=tmdbCredentials();
+ if(!token&&!key)return null;
+ const alreadyPending=tvSeasonPending.get(id);
+ if(alreadyPending)return alreadyPending;
+ const request=(async()=>{
+  const url=new URL('https://api.themoviedb.org/3/tv/'+id);
+  url.searchParams.set('language','en-US');
+  if(!token)url.searchParams.set('api_key',key);
+  const response=await fetch(url,{
+   headers:token?{Authorization:'Bearer '+token}:{},
+   signal:AbortSignal.timeout(6500)
+  });
+  if(!response.ok)throw Error('TV episode metadata unavailable');
+  const body=await response.json();
+  const seasons=(Array.isArray(body.seasons)?body.seasons:[])
+   .filter(x=>Number.isSafeInteger(x.season_number)&&x.season_number>=1&&x.season_number<=99&&
+     Number.isSafeInteger(x.episode_count)&&x.episode_count>=1&&x.episode_count<=999)
+   .map(x=>({season:x.season_number,episodes:x.episode_count}))
+   .sort((a,b)=>a.season-b.season);
+  tvSeasonCache.set(id,{seasons,until:Date.now()+10*60*1000});
+  if(tvSeasonCache.size>100)tvSeasonCache.delete(tvSeasonCache.keys().next().value);
+  return seasons;
+ })();
+ tvSeasonPending.set(id,request);
+ try{return await request}
+ finally{tvSeasonPending.delete(id)}
+
+}
+app.get('/api/catalog/tv/:id/seasons',async(req,res)=>{
+ res.set('Cache-Control','private, no-store');
+ const raw=String(req.params?.id||'');
+ if(!/^[1-9]\d{0,8}$/.test(raw))return res.status(400).json({error:'Invalid TV series ID'});
+ const now=Date.now(),ip=String(req.ip||'unknown'),hits=tvDetailsRate.get(ip)||{until:now+60000,n:0};
+ if(now>hits.until){hits.until=now+60000;hits.n=0}
+ hits.n++;tvDetailsRate.set(ip,hits);
+ if(hits.n>30)return res.status(429).json({error:'Too many episode lookups. Try again shortly.'});
+ if(!tmdbCredentials().token&&!tmdbCredentials().key)
+  return res.status(503).json({error:'Episode counts unavailable without a TMDB credential'});
+ try{
+  const seasons=await catalogTvSeasons(Number(raw));
+  return res.json({seasons:seasons||[]});
+ }catch(error){
+  console.warn('TV episode lookup failed:',error.message);
+  return res.status(502).json({error:'Could not verify available seasons and episodes.'});
+ }
+});
 app.get('/api/catalog/search',async(req,res)=>{
  res.set('Cache-Control','private, no-store');
  const q=typeof req.query.q==='string'?req.query.q.trim():'';
@@ -149,7 +202,7 @@ app.get('/api/catalog/search',async(req,res)=>{
  }
 });
 app.disable('x-powered-by');
-app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Content-Security-Policy',"frame-ancestors 'self'; frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://vsembed.su https://vidfast.vc https://player.vidlove.cc");res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self), geolocation=(), payment=(), display-capture=(), clipboard-read=(), clipboard-write=(self), usb=(), serial=(), bluetooth=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()');next()});
+app.use((req,res,next)=>{res.set('X-Content-Type-Options','nosniff');res.set('Content-Security-Policy',"frame-ancestors 'self'; frame-src 'self' https://www.youtube.com https://youtube.com https://www.youtube-nocookie.com https://vidfast.vc");res.set('Referrer-Policy','strict-origin-when-cross-origin');res.set('Permissions-Policy','camera=(self), microphone=(self), geolocation=(), payment=(), display-capture=(), clipboard-read=(), clipboard-write=(self), usb=(), serial=(), bluetooth=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=()');next()});
 app.use(express.static(path.join(__dirname,'public')));
 app.get('/health',(_req,res)=>res.json({ok:true,relayConfigured:Boolean((process.env.TURN_URL&&process.env.TURN_USERNAME&&process.env.TURN_CREDENTIAL)||(process.env.METERED_TURN_DOMAIN&&process.env.METERED_TURN_API_KEY))}));
 // Relay credentials are provided only to live room members. A TURN credential
@@ -325,17 +378,32 @@ s.on('room:rename',(d,ack)=>{
 });
 s.on('video',(d,ack)=>{const r=roomOf(s);if(!r)return;const video=getVideo(d?.url);if(!video)return ack?.({error:'Enter a valid YouTube link'});r.source='youtube';r.websiteUrl='';r.websiteTimeline=null;r.catalog=null;r.video=video;r.position=0;r.playing=false;r.at=Date.now();r.version++;io.to(r.id).emit('state',state(r));ack?.({ok:true})});
 
-s.on('website',(d,ack)=>{
- const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
- const websiteUrl=validateWebsiteUrl(d?.url);
- if(!websiteUrl)return ack?.({error:'Enter a public HTTPS website URL without passwords or access tokens'});
- r.source='website';r.websiteUrl=websiteUrl;r.websiteTimeline=null;r.catalog=null;r.playing=false;r.position=0;r.at=Date.now();r.version++;
- io.to(r.id).emit('state',state(r));ack?.({ok:true});
+// The old unrestricted website-sharing socket event remains reject-only for older clients.
+s.on('website',(_d,ack)=>{
+ ack?.({error:'Arbitrary website sharing was disabled for safety. Use the verified room controls.'});
 });
-s.on('catalog:play',(d,ack)=>{
+s.on('catalog:play',async(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join a room before sharing a movie'});
  const choice=catalogPlayer(d);
  if(!choice)return ack?.({error:'Select a supported provider and valid TMDB movie or episode'});
+ const requestedVersion=r.version;
+ // Reject nonexistent seasons/episodes when TMDB credentials are available.
+ if(choice.type==='tv'){
+  try{
+   const seasons=await catalogTvSeasons(choice.id);
+   if(seasons!==null){
+    const match=seasons.find(x=>x.season===choice.season);
+    if(!match||choice.episode>match.episodes)
+     return ack?.({error:'That season or episode does not exist in TMDB metadata.'});
+   }
+  }catch(error){
+   return ack?.({error:'Unable to verify TV episode details. Please retry.'});
+  }
+ }
+ // The member might have disconnected while awaiting the metadata lookup.
+ if(roomOf(s)!==r)return ack?.({error:'Room connection changed. Please try again.'});
+ if(r.version!==requestedVersion)
+  return ack?.({error:'Someone changed the room playback while the episode was being checked. Please try again.'});
  r.source='website';r.websiteUrl=choice.url;r.websiteTimeline=null;
  r.catalog={type:choice.type,id:choice.id,title:choice.title,provider:choice.provider,
    label:choice.label,...(choice.type==='tv'?{season:choice.season,episode:choice.episode}:{})};

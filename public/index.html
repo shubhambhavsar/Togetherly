@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/bluehour.css?v=1">
 <link rel="stylesheet" href="/layout-fixes.css?v=2">
 <link rel="stylesheet" href="/simplify.css?v=1"><link rel="stylesheet" href="/cinema-dock.css?v=1">
-<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=8"><link rel="stylesheet" href="/watch-redesign.css?v=1">
+<link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=8"><link rel="stylesheet" href="/watch-redesign.css?v=3">
 </head>
 <body>
 <header class="site-header">
@@ -65,15 +65,6 @@
               <strong>Player stopped</strong>
               <p>The source has been unloaded on this device. Chat and cameras stay connected.</p>
             </div>
-            <div class="website-player-warning">
-              <div class="source-safety-label"><strong id="websiteHost">External source</strong>
-                <span id="websiteModeStatus" role="status" aria-live="polite">Independent playback</span></div>
-              <div class="website-player-actions">
-                <button id="websiteStop" type="button">Stop player</button>
-                <button id="websiteResume" class="hidden" type="button">Resume player</button>
-                <a id="openWebsite" href="https://example.org/" target="_blank" rel="noopener noreferrer nofollow" referrerpolicy="no-referrer">Open separately ↗</a>
-              </div>
-            </div>
           </div>
           <div class="player-fallback" id="playerFallback" role="status" aria-live="polite">
             <span class="player-loading-mark">▶</span>
@@ -103,6 +94,8 @@
             <span id="syncLabel" class="sync-status" role="status">YouTube playback syncs automatically</span>
           </div>
           <div class="toolbar-actions">
+            <button id="websiteStop" type="button" class="secondary-button small hidden" aria-label="Close external movie on this device" title="Unload the external movie and keep the room connected">✕ Close movie</button>
+            <button id="websiteResume" type="button" class="secondary-button small hidden" aria-label="Resume external movie">↻ Resume movie</button>
             <button id="toolbarFullscreen" class="secondary-button small" aria-label="Enter theater mode" title="Fullscreen with call and chat"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"/></svg><span>Theater</span></button>
             <button id="toolbarChat" class="secondary-button small" aria-label="Open chat" title="Open room chat">
               <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a8.5 8.5 0 0 1-8.5 8.5 8.8 8.8 0 0 1-4.1-1L3 21l1.8-4.5A8.6 8.6 0 1 1 20 11.5Z"/></svg>
@@ -142,6 +135,7 @@
               <button type="button" class="catalog-example" data-catalog-query="Breaking Bad">Breaking Bad</button>
             </div>
             <p id="catalogStatus" class="catalog-help" role="status" aria-live="polite">Start typing to see movie and series suggestions.</p>
+            <p id="catalogNowPlaying" class="catalog-now-playing hidden" role="status" aria-live="polite"></p>
             <div id="catalogResults" class="catalog-results" aria-label="Movie and TV search suggestions"></div>
             <form id="catalogPlayForm" class="catalog-play-form hidden" aria-label="Share selected movie or series">
               <div class="catalog-selection">
@@ -160,18 +154,12 @@
                 <label class="catalog-tv-only hidden">Episode
                   <input id="catalogEpisode" type="number" min="1" max="999" step="1" value="1">
                 </label>
-                <label>Playback source
-                  <select id="catalogProvider">
-                    <option value="vidsrc">VidSrc</option>
-                    <option value="vidfast">Vidfast</option>
-                    <option value="vidlove">Vidlove</option>
-                  </select>
-                </label>
+                <input id="catalogProvider" type="hidden" value="vidfast">
                 <button id="catalogPlay" class="secondary-button small" type="submit">Watch with room</button>
               </div>
-              <p class="catalog-source-note">These are experimental third-party players. If one does not load, you can try another source.</p>
+              <p id="catalogEpisodeHelp" class="catalog-episode-help hidden" role="status" aria-live="polite"></p>
+              <p class="catalog-source-note">This is an unverified third-party player. If your antivirus flags its site or redirects, do not bypass the warning. Use a trusted viewing service instead.</p>
             </form>
-            <p id="catalogNowPlaying" class="catalog-now-playing" aria-live="polite"></p>
             <p class="catalog-disclaimer">Sources may contain ads or block embedding. Only watch content you are authorized to access; third-party playback is not synchronized. Title metadata from <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a> or <a href="https://www.wikidata.org/" target="_blank" rel="noopener noreferrer">Wikidata</a>. This product is not endorsed or certified by TMDB.</p>
           </section>
           </div>
@@ -254,6 +242,6 @@
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=20"></script>
+<script src="/app.js?v=22"></script>
 </body>
 </html>

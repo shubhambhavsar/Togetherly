@@ -309,26 +309,82 @@ setSourceTab('movies');
 // provider-controlled embedded sites, not direct playable video under our control.
 // Movie IDs are internal to the catalogue. Viewers select a title instead.
 let catalogChoice=null,catalogSearchTimer=null,catalogSearchController=null,catalogSearchSequence=0;
+let catalogEpisodeCounts=null,catalogEpisodeLoading=false,catalogEpisodeLookup=0,catalogPlaySequence=0;
 function catalogEpisodeFields(){
  const tv=$('catalogType').value==='tv';
  document.querySelectorAll('#movieCatalog .catalog-tv-only').forEach(n=>n.classList.toggle('hidden',!tv));
+ $('catalogEpisodeHelp').classList.toggle('hidden',!tv);
+}
+function catalogUpdateEpisodeGuide(){
+ const tv=$('catalogType').value==='tv',help=$('catalogEpisodeHelp');
+ if(!tv){help.classList.add('hidden');$('catalogPlay').disabled=false;return}
+ help.classList.remove('hidden');
+ const season=Number($('catalogSeason').value),episode=Number($('catalogEpisode').value);
+ let invalid=false;
+ if(catalogEpisodeLoading){
+  help.textContent='Checking available seasons and episodes…';
+ }else if(Array.isArray(catalogEpisodeCounts)){
+  const found=catalogEpisodeCounts.find(x=>x.season===season);
+  if(!found){
+   help.textContent='Season '+season+' is not listed in TMDB. Choose an available season.';
+   invalid=true;
+  }else if(episode<1||episode>found.episodes){
+   help.textContent='Season '+season+' has '+found.episodes+' listed episodes. Choose episode 1–'+found.episodes+'.';
+   invalid=true;
+  }else{
+   help.textContent='Season '+season+' · episode '+episode+' of '+found.episodes+' listed by TMDB. Player availability is not guaranteed.';
+  }
+ }else{
+  help.textContent='Episode counts could not be verified. Check the season and episode manually before sharing.';
+ }
+ $('catalogPlay').disabled=catalogEpisodeLoading||invalid;
+}
+async function catalogLoadTvEpisodes(id){
+ const seq=++catalogEpisodeLookup;
+ catalogEpisodeLoading=true;catalogEpisodeCounts=null;catalogUpdateEpisodeGuide();
+ try{
+  const response=await fetch('/api/catalog/tv/'+encodeURIComponent(id)+'/seasons',{credentials:'same-origin'});
+  const payload=await response.json();
+  if(seq!==catalogEpisodeLookup||catalogChoice?.id!==id||catalogChoice?.type!=='tv')return;
+  if(!response.ok)throw Error(payload.error||'Episode lookup unavailable');
+  catalogEpisodeCounts=(Array.isArray(payload.seasons)?payload.seasons:[])
+    .filter(x=>Number.isSafeInteger(x.season)&&x.season>=1&&x.season<=99&&
+      Number.isSafeInteger(x.episodes)&&x.episodes>=1&&x.episodes<=999);
+  // A season may be numbered non-contiguously, so pick the first real season.
+  if(catalogEpisodeCounts.length&&!catalogEpisodeCounts.some(x=>x.season===Number($('catalogSeason').value)))
+   $('catalogSeason').value=String(catalogEpisodeCounts[0].season);
+  catalogEpisodeLoading=false;catalogUpdateEpisodeGuide();
+ }catch(error){
+  if(seq!==catalogEpisodeLookup||catalogChoice?.id!==id||catalogChoice?.type!=='tv')return;
+  catalogEpisodeLoading=false;catalogEpisodeCounts=null;catalogUpdateEpisodeGuide();
+ }
 }
 function catalogClearSelection(){
+ catalogEpisodeLookup++;catalogPlaySequence++;catalogEpisodeLoading=false;catalogEpisodeCounts=null;
  catalogChoice=null;
  $('catalogId').value='';
  $('catalogPlayForm').classList.add('hidden');
+ $('catalogEpisodeHelp').classList.add('hidden');
+ $('catalogPlay').disabled=false;
+ document.querySelectorAll('#catalogResults .catalog-result').forEach(button=>{
+  button.classList.remove('is-selected');button.setAttribute('aria-pressed','false');
+ });
 }
 function catalogSelectTitle(item){
  if(!item||!Number.isSafeInteger(item.id)||!['movie','tv'].includes(item.type))return;
+ catalogClearSelection();
  catalogChoice={id:item.id,type:item.type,title:item.title};
  $('catalogType').value=item.type;
  $('catalogId').value=String(item.id);
+ $('catalogSeason').value='1';$('catalogEpisode').value='1';
  $('catalogSelectedTitle').textContent=item.title;
  $('catalogSelectedMeta').textContent=(item.type==='movie'?'Movie':'TV series')+
   (item.year?' · '+item.year:'');
  catalogEpisodeFields();
  $('catalogPlayForm').classList.remove('hidden');
- $('catalogStatus').textContent='Selected '+item.title+'. Choose a playback source and watch with your room.';
+ $('catalogStatus').textContent='Selected '+item.title+' — not shared yet. Use Watch with room to change what guests see.';
+ catalogUpdateEpisodeGuide();
+ if(item.type==='tv')catalogLoadTvEpisodes(item.id);
  document.querySelectorAll('#catalogResults .catalog-result').forEach(button=>{
   const selected=button.dataset.catalogKey===item.type+':'+item.id;
   button.classList.toggle('is-selected',selected);
@@ -432,6 +488,11 @@ $('catalogChangeTitle').onclick=()=>{
  $('catalogStatus').textContent='Choose another result or search for a different title.';
 };
 catalogEpisodeFields();
+$('catalogSeason').addEventListener('input',()=>{
+ $('catalogEpisode').value='1';
+ catalogUpdateEpisodeGuide();
+});
+$('catalogEpisode').addEventListener('input',catalogUpdateEpisodeGuide);
 $('catalogPlayForm').onsubmit=event=>{
  event.preventDefault();
  if(!room)return toast('Join a room before sharing a movie');
@@ -440,20 +501,26 @@ $('catalogPlayForm').onsubmit=event=>{
   return toast('Select a movie or series from the suggestions first');
  }
  const season=Number($('catalogSeason').value),episode=Number($('catalogEpisode').value);
+ if(type==='tv'&&catalogEpisodeLoading)return toast('Wait for the episode list to load');
+ const knownSeason=Array.isArray(catalogEpisodeCounts)?
+  catalogEpisodeCounts.find(x=>x.season===season):null;
  if(type==='tv'&&(!Number.isSafeInteger(season)||season<1||season>99||
-  !Number.isSafeInteger(episode)||episode<1||episode>999)){
-  return toast('Enter a valid season and episode');
+  !Number.isSafeInteger(episode)||episode<1||episode>999||
+  (Array.isArray(catalogEpisodeCounts)&&(!knownSeason||episode>knownSeason.episodes)))){
+  return toast('Choose an available season and episode');
  }
+ const requestId=++catalogPlaySequence,choiceId=catalogChoice.id,choiceType=catalogChoice.type;
  const button=$('catalogPlay');button.disabled=true;
  $('catalogStatus').textContent='Sharing '+catalogChoice.title+' with your room…';
  socket.timeout(9000).emit('catalog:play',{
   type,id,season,episode,provider:$('catalogProvider').value,title:catalogChoice.title
  },(error,ack)=>{
-  button.disabled=false;
+  if(requestId!==catalogPlaySequence||catalogChoice?.id!==choiceId||catalogChoice?.type!==choiceType)return;
+  catalogUpdateEpisodeGuide();
   if(error||ack?.error){
    $('catalogStatus').textContent=ack?.error||'Could not load this source';return;
   }
-  $('catalogStatus').textContent='Player shared. Each viewer loads the third-party source independently. If it fails, try a different source.';
+  $('catalogStatus').textContent='Shared with room. Each viewer loads the same source independently; playback is not synchronized.';
  });
 };
 let ytScriptStarted=false,playerTimeout=null;
@@ -503,9 +570,7 @@ function sendPlayback(action){if(!playerReady||applying||lastState?.source==='we
 // A legacy arbitrary shared-website URL remains sandboxed, never auto-trusted.
 const WEBSITE_FRAME_SANDBOX='allow-scripts allow-presentation';
 const CATALOG_ALLOWED_PLAYERS=Object.freeze({
- vidsrc:{movie:id=>'https://vsembed.su/embed/movie/'+id,tv:(id,s,e)=>'https://vsembed.su/embed/tv/'+id+'/'+s+'/'+e},
- vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e},
- vidlove:{movie:id=>'https://player.vidlove.cc/embed/movie/'+id,tv:(id,s,e)=>'https://player.vidlove.cc/embed/tv/'+id+'/'+s+'/'+e}
+ vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
 let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false,websiteLastUnrestricted=false;
 function verifiedCatalogPlayer(s){
@@ -544,12 +609,9 @@ function updateWebsitePlayerActions(url){
  $('websiteStop').classList.toggle('hidden',!url||stopped);
  $('websiteResume').classList.toggle('hidden',!stopped);
  $('websiteStopped').classList.toggle('hidden',!stopped);
- $('websiteModeStatus').textContent=stopped?'Stopped on this device':
-  verifiedCatalogPlayer(lastState)?'Experimental source · Not synchronized':
-  'Protected legacy source · Not synchronized';
 }
 function setWebsitePlayer(s){
- const external=s?.source==='website'&&typeof s.websiteUrl==='string'&&s.websiteUrl.startsWith('https://');
+ const external=s?.source==='website'&&verifiedCatalogPlayer(s);
  const shell=$('videoShell'),frame=$('websiteFrame');
  shell.classList.toggle('website-mode',external);
  $('websitePlayer').classList.toggle('hidden',!external);
@@ -558,8 +620,6 @@ function setWebsitePlayer(s){
   try{target=new URL(s.websiteUrl);if(target.protocol!=='https:')throw Error('Invalid protocol')}
   catch{unloadWebsiteFrame();return false}
   const url=target.toString();
-  $('websiteHost').textContent=s.catalog?.title||target.hostname;
-  $('openWebsite').href=url;
   const trusted=verifiedCatalogPlayer(s);
   if(websiteSelectedUrl!==url){
    websiteSelectedUrl=url;websiteStoppedFor=null;websiteLastUnrestricted=trusted;
@@ -593,9 +653,11 @@ function applyState(s){
  const old=lastState;
  lastState=s;version=s.version;
  if(old?.source&&old.source!==s.source)setSourceTab(s.source==='website'?'movies':'youtube');
+ $('catalogNowPlaying').classList.toggle('hidden',!s.catalog);
  $('catalogNowPlaying').textContent=s.catalog
-  ?'Shared: '+s.catalog.title+' · '+s.catalog.label+
-   (s.catalog.type==='tv'?' · S'+s.catalog.season+' E'+s.catalog.episode:'')
+  ?'Currently shared in this room: '+s.catalog.title+
+   (s.catalog.type==='tv'?' · S'+s.catalog.season+' E'+s.catalog.episode:'')+
+   ' · '+s.catalog.label
   :'';
  if(old?.video!==s.video&&s.source!=='website')saveRecent({id:s.video,title:'YouTube video'});
  $('videoURL').value='https://www.youtube.com/watch?v='+s.video;

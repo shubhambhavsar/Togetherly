@@ -39,14 +39,6 @@
 #watch .youtube-panel-header button{flex:none}
 #watch #youtubeSourcePanel .paste-row{margin:8px 0 0}
 #watch .watch-queue{border-top:1px solid rgba(155,190,208,.16);padding-top:17px}
-#watch .website-player-warning{left:12px!important;right:12px!important;top:10px!important;bottom:auto!important;max-width:none!important;padding:8px 12px!important;max-height:none!important;background:rgba(8,19,30,.88)!important;backdrop-filter:blur(12px)}
-#watch .source-safety-label{display:flex;flex-direction:column;gap:3px;min-width:0}
-#watch #websiteHost{max-width:240px;font-size:12px}
-#watch .source-safety-label span{font-size:10px;color:#9fc0d5}
-#watch .website-player-actions{width:auto!important;gap:8px}
-#watch .website-player-actions button{background:#162e43!important}
-#watch .website-player-actions a{font-size:10px}
-#watch #videoShell.website-mode.theater-mode .website-player-warning{max-width:calc(100% - 90px)!important;top:10px!important;bottom:auto!important}
 @media(max-width:900px){
  #watch .room-grid{gap:18px}
  #watch .source-library{padding:18px}
@@ -62,8 +54,51 @@
  #watch .catalog-results{grid-template-columns:1fr}
  #watch .youtube-panel-header{align-items:stretch;flex-direction:column;gap:12px}
  #watch .youtube-panel-header button{width:100%}
- #watch .website-player-warning{top:7px!important;left:7px!important;right:7px!important;display:flex!important;gap:6px!important}
- #watch .source-safety-label span{display:none}
- #watch .website-player-actions a{display:none}
- #watch #websiteHost{font-size:10px;max-width:130px}
+}
+
+/* Player controls are outside the video canvas, not an overlaying band. */
+#watch .player-toolbar #websiteStop,
+#watch .player-toolbar #websiteResume{
+  font-size:11px;line-height:1.2;padding:8px 10px;border-radius:8px;
+  background:#172838;border:1px solid rgba(150,184,205,.26);
+}
+#watch .player-toolbar #websiteStop.hidden,
+#watch .player-toolbar #websiteResume.hidden{display:none!important}
+@media(max-width:650px){
+ #watch .player-toolbar #websiteStop,
+ #watch .player-toolbar #websiteResume{padding:8px;font-size:10px}
+}
+
+/* Fix legacy flex alignment leaking into the new selected-title panel. */
+#watch .catalog-play-form{
+ display:flex;flex-direction:column;align-items:stretch;
+ gap:12px;width:100%;box-sizing:border-box;margin-top:12px;padding:15px;
+}
+#watch .catalog-selection{
+ width:100%;min-width:0;align-items:center;justify-content:space-between;
+}
+#watch .catalog-selection>div{min-width:0;flex:1}
+#watch .catalog-play-options{
+ display:flex;align-items:flex-end;justify-content:flex-start;
+ width:100%;max-width:100%;min-width:0;flex-wrap:wrap;gap:10px;
+}
+#watch .catalog-play-options label{flex:0 1 160px;min-width:105px}
+#watch .catalog-play-options button{flex:0 0 auto;align-self:end}
+#watch .catalog-source-note,#watch .catalog-episode-help{
+ display:block;width:100%;max-width:100%;line-height:1.55;
+}
+#watch .catalog-episode-help{font-size:11px;color:#d7c6ac;margin:0}
+#watch .catalog-episode-help.hidden{display:none!important}
+#watch .catalog-now-playing{
+ display:block;margin:12px 0 8px;padding:10px 13px;
+ border-left:3px solid #d7a96b;border-radius:5px;
+ background:rgba(215,169,107,.09);font-size:12px;line-height:1.5;
+ color:#ead4b7;font-weight:650;
+}
+#watch .catalog-now-playing.hidden{display:none!important}
+#watch .catalog-play-options button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:700px){
+ #watch .catalog-play-options label{flex:1 1 42%}
+ #watch .catalog-play-options button{width:100%;margin:4px 0 0}
+ #watch .catalog-selection{align-items:flex-start}
 }
