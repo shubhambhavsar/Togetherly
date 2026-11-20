@@ -36,6 +36,17 @@ async function check(){
   const unexpected=[];
   host.on('pageerror',err=>unexpected.push('host: '+err.message));
   await host.goto(origin,{waitUntil:'domcontentloaded'});
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'cinema');
+  await host.locator('#themeToggle').click();
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'lounge');
+  assert.equal(await host.locator('#themeToggle').getAttribute('aria-pressed'),'true');
+  assert.equal(await host.locator('meta[name="theme-color"]').getAttribute('content'),'#FAF5EC');
+  const lightSurface=await host.evaluate(()=>getComputedStyle(document.body).backgroundColor);
+  assert.equal(lightSurface,'rgb(250, 245, 236)','Light mode should use warm ivory, not a dark background');
+  const persistedTab=await context.newPage();
+  await persistedTab.goto(origin,{waitUntil:'domcontentloaded'});
+  assert.equal(await persistedTab.locator('html').getAttribute('data-theme'),'lounge','Theme preference should persist in browser storage');
+  await persistedTab.close();
   await host.locator('#name').fill('Mobile host');
   await host.locator('#create').click();
   await host.locator('#watch').waitFor({state:'visible',timeout:15000});
@@ -131,6 +142,22 @@ async function check(){
   await host.locator('#camera').click();
   assert.match(await host.locator('#camera').textContent(),/Turn camera on/);
   await host.locator('#camera').click();
+  const publishingBefore=await host.evaluate(()=>{
+   const track=document.querySelector('#callGrid video')?.srcObject?.getVideoTracks()[0];
+   return Boolean(track&&track.readyState==='live');
+  });
+  assert.equal(publishingBefore,true,'Camera track should still be live');
+  await host.locator('#mobileClosePeople').click();
+  await host.locator('#themeToggle').click();
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'cinema');
+  await host.locator('#themeToggle').click();
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'lounge');
+  const publishingAfter=await host.evaluate(()=>{
+   const track=document.querySelector('#callGrid video')?.srcObject?.getVideoTracks()[0];
+   return Boolean(track&&track.readyState==='live');
+  });
+  assert.equal(publishingAfter,true,'Changing themes must not restart a WebRTC camera');
+  await host.locator('#mobileNavPeople').click();
 
   // Separate browser storage from the host; real guests have independent nicknames.
   const guestContext=await browser.newContext({
@@ -140,6 +167,12 @@ async function check(){
   const guest=await guestContext.newPage();
   guest.on('pageerror',err=>unexpected.push('guest: '+err.message));
   await guest.goto(url,{waitUntil:'domcontentloaded'});
+  assert.equal(await guest.locator('html').getAttribute('data-theme'),'cinema','Guest uses independent theme preference');
+  await guest.locator('#themeToggle').click();
+  assert.equal(await guest.locator('html').getAttribute('data-theme'),'lounge');
+  await guest.locator('#themeToggle').click();
+  assert.equal(await guest.locator('html').getAttribute('data-theme'),'cinema');
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'lounge','Guest changes must not change host appearance');
   await guest.locator('#name').fill('Guest');
   await guest.locator('#join').click();
   await guest.locator('#watch').waitFor({state:'visible',timeout:15000});
