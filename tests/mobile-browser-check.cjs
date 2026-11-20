@@ -81,7 +81,12 @@ async function check(){
   await guest.locator('#watch').waitFor({state:'visible',timeout:15000});
   await guest.locator('#mobileNavPeople').click();
   await guest.locator('#peoplePanel').waitFor({state:'visible'});
-  await guest.waitForFunction(()=>document.querySelectorAll('#members .member').length===2,{timeout:12000});
+  await guest.waitForFunction(()=>document.querySelectorAll('#members .member').length===2,null,{timeout:12000});
+  await guest.waitForFunction(()=>[...document.querySelectorAll('#callGrid video')]
+   .some(video=>video.srcObject&&video.srcObject.getVideoTracks().length>0),null,{timeout:15000});
+  const remoteVideos=await guest.evaluate(()=>[...document.querySelectorAll('#callGrid video')]
+   .filter(video=>video.srcObject?.getVideoTracks().length>0).length);
+  console.log('Guest remote camera streams:',remoteVideos);
   await guest.locator('#mobileClosePeople').click();
   await guest.locator('#mobileNavChat').click();
   await guest.locator('#chatPanel.chat-open').waitFor({state:'visible'});
