@@ -299,6 +299,10 @@ async function check(){
     'Movie controls must be usable on phone: '+JSON.stringify(g));
   }
   await host.setViewportSize({width:390,height:844});
+  // The toolbar is deliberately invisible until the viewer taps the movie.
+  if(!(await host.locator('#websitePlayer').getAttribute('class')).includes('controls-visible'))
+   await shield.click({position:{x:12,y:12}});
+  await host.locator('#websitePlayer.controls-visible').waitFor({state:'visible'});
   await host.locator('#movieLocalPlay').click();
   await host.frameLocator('#websiteFrame').locator('body[data-command="play"]').waitFor({state:'attached'});
   assert.match(await host.locator('#movieLocalStatus').textContent(),/Playing confirmed/);
