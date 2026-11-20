@@ -86,7 +86,21 @@
   display:flex!important;flex-direction:column!important;gap:16px;
  }
  #watch.room-discover-first .theater-main>.source-library{order:-2}
- #watch.room-discover-first .theater-main>.watch-stage{display:none!important}
+ /* Keep the empty player stage available as a resilient fallback. Hiding it
+    made the room effectively blank when the discovery library was suppressed
+    by a browser-specific or cached mobile rule. */
+ #watch.room-discover-first .theater-main>.watch-stage{
+  display:block!important;order:-1;min-height:210px;
+ }
+ #watch.room-discover-first #videoShell{min-height:190px}
+ #watch.room-discover-first .theater-main>.player-toolbar{order:0}
+ #watch.room-discover-first .theater-main>.source-library{
+  display:block!important;visibility:visible!important;opacity:1!important;
+  position:relative!important;max-height:none!important;
+  min-height:280px!important;overflow:visible!important;
+  margin:0 0 12px!important;order:-2;
+ }
+ #watch.room-discover-first .source-panel:not(.hidden){display:block!important}
  #watch.room-discover-first .theater-main>.watch-queue{order:1}
  #watch.room-discover-first .source-library{
   display:block!important;
