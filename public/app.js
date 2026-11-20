@@ -959,7 +959,6 @@ function updateWebsitePlayerActions(url){
  $('websiteStop').classList.toggle('hidden',!url||stopped);
  $('websiteResume').classList.toggle('hidden',!stopped);
  $('websiteStopped').classList.toggle('hidden',!stopped);
- setWebsiteClickGuard(websiteControlsUnlocked);
 }
 function setWebsitePlayer(s){
  const external=s?.source==='website'&&verifiedCatalogPlayer(s);
