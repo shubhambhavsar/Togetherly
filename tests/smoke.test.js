@@ -779,7 +779,7 @@ test('movie title suggestions work without a TMDB key using Wikidata IDs',async(
  assert.equal(result.code,200);
  assert.equal(result.body.source,'Wikidata');
  assert.equal(result.body.results.length,2,'Only supported movie/TV metadata IDs should appear; duplicates excluded');
- assert.deepEqual(result.body.results.map(x=>[x.id,x.type]),[[27205,'movie'],[1399,'tv']]);
+ assert.deepEqual(Array.from(result.body.results,x=>[x.id,x.type]),[[27205,'movie'],[1399,'tv']]);
  assert.equal(result.body.results[0].title,'Inception');
  assert.equal(result.body.results[0].year,'2010');
  assert.equal(calls.length,2,'Metadata lookup should require only a Wikidata search and details call');
