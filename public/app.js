@@ -573,6 +573,9 @@ const CATALOG_ALLOWED_PLAYERS=Object.freeze({
  vidfast:{movie:id=>'https://vidfast.vc/movie/'+id,tv:(id,s,e)=>'https://vidfast.vc/tv/'+id+'/'+s+'/'+e}
 });
 let websiteSelectedUrl=null,websiteStoppedFor=null,websiteExitGuardArmed=false,websiteLastUnrestricted=false;
+let websiteSelectedVersion=null,movieSnapshot=null,movieSnapshotAt=0;
+let movieFrameEventsSeen=false,movieFrameLastProgress=null,movieFrameLastProgressAt=0;
+let movieLastReportedAt=0,movieLastCorrectionAt=0;
 function verifiedCatalogPlayer(s){
  const c=s?.catalog,p=CATALOG_ALLOWED_PLAYERS[c?.provider];
  if(!p||!['movie','tv'].includes(c.type))return false;
@@ -583,6 +586,157 @@ function verifiedCatalogPlayer(s){
  const expected=c.type==='movie'?p.movie(id):p.tv(id,season,episode);
  return s.websiteUrl===expected;
 }
+// VidFast documents startAt, but does not guarantee that play/pause/seek messages
+// work in every embedded player. Never access cross-origin iframe DOM.
+const MOVIE_PLAYER_ORIGIN='https://vidfast.vc';
+function movieClockNow(){
+ if(!movieSnapshot)return null;
+ return Math.max(0,Math.min(86400,movieSnapshot.position+
+  (movieSnapshot.playing?Math.max(0,(Date.now()-movieSnapshotAt)/1000):0)));
+}
+function moviePositionText(seconds){
+ if(!Number.isFinite(seconds))return '--:--';
+ const n=Math.max(0,Math.floor(seconds)),h=Math.floor(n/3600);
+ const m=String(Math.floor(n%3600/60)).padStart(h?2:1,'0');
+ const sec=String(n%60).padStart(2,'0');
+ return (h?h+':':'')+m+':'+sec;
+}
+function movieParseTime(input){
+ const parts=String(input||'').trim().split(':');
+ if(parts.length<2||parts.length>3||parts.some(x=>!/^\d{1,2}$/.test(x)))return null;
+ const values=parts.map(Number);
+ if(values.at(-1)>59||(parts.length===3&&values[1]>59))return null;
+ const seconds=values.reduce((acc,v)=>acc*60+v,0);
+ return Number.isFinite(seconds)&&seconds<=86400?seconds:null;
+}
+function movieIsHost(){
+ return Boolean(room&&me&&lastState?.websiteLeader===me);
+}
+function movieUpdateSnapshot(t){
+ if(!t||t.version!==lastState?.version)return;
+ if(!Number.isFinite(t.position)||t.position<0||t.position>86400||typeof t.playing!=='boolean')return;
+ movieSnapshot={...t};
+ movieSnapshotAt=Date.now();
+ updateMovieSyncUI();
+}
+function updateMovieSyncUI(){
+ const active=lastState?.source==='website'&&verifiedCatalogPlayer(lastState);
+ $('movieRoomSync').classList.toggle('hidden',!active);
+ if(!active)return;
+ const current=movieClockNow();
+ const prefix=movieSnapshot?.origin==='player'?'Player-reported':'Estimated';
+ $('movieSyncStatus').textContent=prefix+' room time: '+moviePositionText(current)+
+  (movieSnapshot?.playing?' · playing':' · paused');
+ const host=movieIsHost();
+ $('movieHostControls').classList.toggle('hidden',!host);
+ $('moviePlayClock').disabled=!host||Boolean(movieSnapshot?.playing&&movieSnapshot?.origin!=='estimated');
+ $('moviePauseClock').disabled=!host||!movieSnapshot?.playing;
+ $('movieSyncHint').textContent=host
+  ?'The clock begins when the movie is shared. If it buffered or started late, tap "I\'m playing now" when playback really begins. Use Set room time after seeking. Provider events update the clock only when available.'
+  :'If you joined late, tap Join at room time to load near the host\'s estimated position. Player autoplay and exact synchronization may be unavailable.';
+}
+function movieEmbedUrl(base,timeline){
+ const url=new URL(base);
+ const position=Number(timeline?.position);
+ if(Number.isFinite(position)&&position>0)url.searchParams.set('startAt',String(Math.floor(Math.min(86400,position))));
+ if(timeline?.playing===true)url.searchParams.set('autoPlay','true');
+ return url.toString();
+}
+function movieSendControl(action,position,playing,then){
+ if(!movieIsHost()||!Number.isFinite(position)||position<0||position>86400)return;
+ const payload={action,position,version:lastState.version};
+ if(action==='sample')payload.playing=Boolean(playing);
+ socket.timeout(9000).emit('movie:control',payload,(error,ack)=>{
+  if(error||!ack?.ok){if(action!=='sample')toast(ack?.error||'Could not update room time');return}
+  if(ack.timeline)movieUpdateSnapshot(ack.timeline);
+  if(typeof then==='function')then();
+ });
+}
+function moviePostCommand(command,time){
+ if(!movieFrameEventsSeen||!websiteSelectedUrl||!verifiedCatalogPlayer(lastState))return false;
+ const target=$('websiteFrame').contentWindow;
+ if(!target)return false;
+ try{
+  target.postMessage(command==='seek'?{command:'seek',time}: {command},MOVIE_PLAYER_ORIGIN);
+  return true;
+ }catch{return false}
+}
+function movieCatchupNow(){
+ if(!websiteSelectedUrl||!verifiedCatalogPlayer(lastState))return;
+ const pos=movieClockNow();
+ if(pos===null)return toast('Waiting for the room timeline');
+ websiteStoppedFor=null;
+ loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:pos,playing:movieSnapshot?.playing}),true);
+ websiteSelectedVersion=lastState.version;
+ updateWebsitePlayerActions(websiteSelectedUrl);
+ toast('Loaded near '+moviePositionText(pos)+'. Press Play if your browser blocks autoplay.');
+}
+$('movieCatchup').onclick=movieCatchupNow;
+$('moviePlayClock').onclick=()=>{
+ const firstStart=movieSnapshot?.origin==='estimated'&&!movieFrameEventsSeen;
+ const position=firstStart?0:(movieFrameLastProgress!==null&&movieFrameEventsSeen?
+  movieFrameLastProgress:movieClockNow()??0);
+ movieSendControl('play',position);
+};
+$('moviePauseClock').onclick=()=>{
+ const position=movieFrameLastProgress!==null&&movieFrameEventsSeen?
+  movieFrameLastProgress:movieClockNow()??0;
+ movieSendControl('pause',position);
+};
+$('movieSetTime').onclick=()=>{
+ const seconds=movieParseTime($('movieTimeInput').value);
+ if(seconds===null)return toast('Enter a time such as 12:34 or 1:02:15');
+ movieSendControl('seek',seconds,null,()=>{
+  if(!moviePostCommand('seek',seconds))movieCatchupNow();
+ });
+};
+function movieCorrectGuestDrift(){
+ if(!room||movieIsHost()||!movieFrameEventsSeen||!movieSnapshot||
+  !verifiedCatalogPlayer(lastState)||websiteStoppedFor===websiteSelectedUrl)return;
+ const target=movieClockNow();
+ if(target===null||movieFrameLastProgress===null)return;
+ const now=Date.now();
+ const local=movieFrameLastProgress+
+  (movieSnapshot.playing?Math.max(0,(now-movieFrameLastProgressAt)/1000):0);
+ if(Math.abs(local-target)>6&&now-movieLastCorrectionAt>15000){
+  movieLastCorrectionAt=now;moviePostCommand('seek',Math.floor(target));
+ }
+}
+window.addEventListener('message',event=>{
+ if(event.origin!==MOVIE_PLAYER_ORIGIN||!websiteSelectedUrl||
+  event.source!==$('websiteFrame').contentWindow||!verifiedCatalogPlayer(lastState))return;
+ const data=event.data;
+ if(!data||typeof data!=='object'||Array.isArray(data)||data.type!=='PLAYER_EVENT')return;
+ const info=data.data;
+ if(!info||typeof info!=='object'||Array.isArray(info))return;
+ if(info.tmdbId!==undefined&&Number(info.tmdbId)!==Number(lastState.catalog.id))return;
+ if(info.mediaType&&info.mediaType!==lastState.catalog.type)return;
+ const eventType=String(info.event||'');
+ if(!['play','playing','pause','paused','seeked','timeupdate','playerstatus','ended'].includes(eventType))return;
+ const position=Number(info.currentTime);
+ if(!Number.isFinite(position)||position<0||position>86400)return;
+ const playing=typeof info.playing==='boolean'?info.playing:
+  ['play','playing','timeupdate','seeked'].includes(eventType)?true:false;
+ movieFrameEventsSeen=true;
+ movieFrameLastProgress=position;movieFrameLastProgressAt=Date.now();
+ if(movieIsHost()&&Date.now()-movieLastReportedAt>=1550){
+  movieLastReportedAt=Date.now();movieSendControl('sample',position,playing);
+ }else movieCorrectGuestDrift();
+});
+socket.on('movie:timeline',t=>{
+ movieUpdateSnapshot(t);
+ // Only attempt optional cross-origin commands after the player sends real events.
+ if(!movieIsHost()&&movieFrameEventsSeen&&t?.playing!==undefined){
+  moviePostCommand(t.playing?'play':'pause');
+  movieCorrectGuestDrift();
+ }
+});
+setInterval(()=>{
+ if(room&&lastState?.source==='website'){
+  updateMovieSyncUI();
+  if(!document.hidden)movieCorrectGuestDrift();
+ }
+},1500);
 function warnBeforeExternalNavigation(e){e.preventDefault();e.returnValue=true}
 function setWebsiteExitGuard(on){
  if(websiteExitGuardArmed===on)return;
@@ -598,6 +752,7 @@ function unloadWebsiteFrame(){
 }
 function loadWebsiteFrame(url,unrestricted){
  const frame=$('websiteFrame');
+ movieFrameEventsSeen=false;movieFrameLastProgress=null;movieFrameLastProgressAt=0;movieLastCorrectionAt=Date.now();
  if(frame.hasAttribute('src'))frame.removeAttribute('src');
  if(unrestricted)frame.removeAttribute('sandbox');
  else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX);
@@ -621,16 +776,18 @@ function setWebsitePlayer(s){
   catch{unloadWebsiteFrame();return false}
   const url=target.toString();
   const trusted=verifiedCatalogPlayer(s);
-  if(websiteSelectedUrl!==url){
-   websiteSelectedUrl=url;websiteStoppedFor=null;websiteLastUnrestricted=trusted;
-   loadWebsiteFrame(url,trusted);
+  if(websiteSelectedUrl!==url||websiteSelectedVersion!==s.version){
+   websiteSelectedUrl=url;websiteSelectedVersion=s.version;
+   websiteStoppedFor=null;websiteLastUnrestricted=trusted;
+   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted);
   }else if(websiteStoppedFor!==url&&(websiteLastUnrestricted!==trusted||!frame.hasAttribute('src'))){
    websiteLastUnrestricted=trusted;
-   loadWebsiteFrame(url,trusted);
+   loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted);
   }
   updateWebsitePlayerActions(url);
  }else{
-  websiteSelectedUrl=null;websiteStoppedFor=null;websiteLastUnrestricted=false;
+  websiteSelectedUrl=null;websiteStoppedFor=null;websiteLastUnrestricted=false;websiteSelectedVersion=null;
+  movieFrameEventsSeen=false;movieFrameLastProgress=null;
   unloadWebsiteFrame();updateWebsitePlayerActions(null);
  }
  return external;
@@ -645,13 +802,16 @@ $('websiteStop').onclick=()=>{
 $('websiteResume').onclick=()=>{
  if(!websiteSelectedUrl||websiteStoppedFor!==websiteSelectedUrl)return;
  websiteStoppedFor=null;
- loadWebsiteFrame(websiteSelectedUrl,verifiedCatalogPlayer(lastState));
+ loadWebsiteFrame(movieEmbedUrl(websiteSelectedUrl,{position:movieClockNow()??0,playing:movieSnapshot?.playing}),verifiedCatalogPlayer(lastState));
  updateWebsitePlayerActions(websiteSelectedUrl);
 };
 function applyState(s){
  if(!s)return;
  const old=lastState;
  lastState=s;version=s.version;
+ movieSnapshot=null;movieSnapshotAt=0;
+ if(s.movieTimeline)movieUpdateSnapshot(s.movieTimeline);
+ updateMovieSyncUI();
  if(old?.source&&old.source!==s.source)setSourceTab(s.source==='website'?'movies':'youtube');
  $('catalogNowPlaying').classList.toggle('hidden',!s.catalog);
  $('catalogNowPlaying').textContent=s.catalog
@@ -665,7 +825,7 @@ function applyState(s){
  if(setWebsitePlayer(s)){
   // An embedded website is its own player; mute the former YouTube playback.
   if(playerReady){applying=true;try{player.pauseVideo()}catch{}finally{setTimeout(()=>applying=false,850)}}
-  $('syncLabel').textContent='Movie source · playback is independent';
+  $('syncLabel').textContent='Movie room clock · approximate join position';
   return
  }
  if(!playerReady)return;
