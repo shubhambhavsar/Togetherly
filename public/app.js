@@ -734,6 +734,7 @@ function setWebsiteClickGuard(unlocked=false){
  const active=Boolean(websiteSelectedUrl&&
   websiteStoppedFor!==websiteSelectedUrl&&$('websiteFrame').hasAttribute('src'));
  websiteControlsUnlocked=Boolean(active&&unlocked);
+ $('websitePlayer').classList.toggle('click-protected',active&&!websiteControlsUnlocked);
  $('websiteClickShield').classList.toggle('hidden',!active||websiteControlsUnlocked);
  const toggle=$('websiteInteractionToggle');
  toggle.classList.toggle('hidden',!active);
