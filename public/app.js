@@ -87,23 +87,35 @@ function humanTitle(text){
 function renderQueue(){
  $('queueCount').textContent=String(roomQueue.length);
  const parent=$('queueList');parent.replaceChildren();
- if(!roomQueue.length){const empty=document.createElement('div');empty.className='empty-state';empty.textContent='Nothing queued yet. Start a watch list for tonight.';parent.append(empty);return}
+ if(!roomQueue.length){const empty=document.createElement('div');empty.className='empty-state';empty.textContent='Nothing queued yet. Add a movie, episode or YouTube video from Discover.';parent.append(empty);return}
  roomQueue.forEach((item,index)=>{
   const row=document.createElement('div');row.className='queue-item';
   const count=document.createElement('span');count.className='queue-number';count.textContent=String(index+1).padStart(2,'0');
   const info=document.createElement('div');info.className='queue-info';
   const title=document.createElement('div');title.className='queue-title';
-  title.textContent=humanTitle(item.title)||'YouTube video';title.title=title.textContent;
-  const by=document.createElement('div');by.className='queue-sub';by.textContent='Added by '+clip(item.addedBy,25);
+  title.textContent=humanTitle(item.title)||(item.source==='website'?'Movie or episode':'YouTube video');title.title=title.textContent;
+  const by=document.createElement('div');by.className='queue-sub';
+  const kind=item.source==='website'?
+   (item.catalog?.type==='tv'?'Series · S'+item.catalog.season+' E'+item.catalog.episode:'Movie'):
+   'YouTube';
+  by.textContent=kind+' · Added by '+clip(item.addedBy,25);
   info.append(title,by);
-  const play=document.createElement('button');play.className='secondary-button small';play.textContent='Play';
-  play.onclick=()=>socket.emit('queue:play',{id:item.id},res=>{if(res?.error)toast(res.error)});
+  const play=document.createElement('button');play.className='secondary-button small';play.textContent='Watch';
+  play.setAttribute('aria-label','Watch '+title.textContent+' with the room');
+  play.onclick=()=>socket.emit('queue:play',{id:item.id},res=>{
+   if(res?.error)return toast(res.error);
+   if(mobileIsCompact())mobileClosePanels();
+  });
   const remove=document.createElement('button');remove.className='text-button';remove.title='Remove from queue';remove.setAttribute('aria-label','Remove '+clip(item.title)+' from queue');remove.textContent='✕';
   remove.onclick=()=>socket.emit('queue:remove',{id:item.id},res=>{if(res?.error)toast(res.error)});
-  if(/^[\w-]{11}$/.test(item.video||'')){
-   const thumb=document.createElement('img');thumb.className='queue-thumb';thumb.src=youtubeThumbnail(item.video);thumb.alt='';thumb.loading='lazy';row.append(count,thumb,info,play,remove)
-  }else row.append(count,info,play,remove);
-  parent.append(row)
+  if(item.source==='youtube'&&/^[\\w-]{11}$/.test(item.video||'')){
+   const thumb=document.createElement('img');thumb.className='queue-thumb';thumb.src=youtubeThumbnail(item.video);thumb.alt='';thumb.loading='lazy';row.append(count,thumb,info,play,remove);
+  }else{
+   const thumb=document.createElement('span');thumb.className='queue-thumb movie-queue-thumb';
+   thumb.textContent=item.catalog?.type==='tv'?'▣':'🎬';
+   thumb.setAttribute('aria-hidden','true');row.append(count,thumb,info,play,remove);
+  }
+  parent.append(row);
  })
 }
 function getRecents(){try{return JSON.parse(localStorage.getItem('togetherly.recents')||'[]').filter(x=>/^[\w-]{11}$/.test(x.id)).slice(0,10)}catch{return []}}
