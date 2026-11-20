@@ -1132,7 +1132,9 @@ function clearPeerRecovery(id){
 }
 function schedulePeerRecovery(id,pc,urgent=false){
  if(!callActive||!socket.connected||connections.get(id)!==pc)return;
- if(pc.connectionState==='connected'||['connected','completed'].includes(pc.iceConnectionState))return;
+ if(pc.connectionState==='connected'||(
+   !['disconnected','failed'].includes(pc.connectionState)&&
+   ['connected','completed'].includes(pc.iceConnectionState)))return;
  if(!participants.some(p=>p.id===id)||!callUser(id))return;
  let recovery=peerRecovery.get(id);
  if(!recovery){
@@ -1208,13 +1210,7 @@ async function createPeer(id,initiator=false){
  function onPeerTransportChange(){
   if(connections.get(id)!==pc)return;
   const state=pc.connectionState,ice=pc.iceConnectionState;
-  if(state==='connected'||ice==='connected'||ice==='completed'){
-   clearPeerRecovery(id);
-   const label=videoTiles.get(id)?.tile.querySelector('.tile-status');
-   if(callRole==='spectator'&&video?.muted)tileStatus(id,'Tap for audio');
-   else if(label)label.remove();
-   $('callStatus').textContent='Connected';
-  }else if(state==='failed'||ice==='failed'){
+  if(state==='failed'||ice==='failed'){
    tileStatus(id,iceConfig.relayAvailable?'Connection interrupted — recovering':'Connection interrupted — a TURN relay may help');
    $('callStatus').textContent='Reconnecting video…';
    schedulePeerRecovery(id,pc,true);
@@ -1222,6 +1218,12 @@ async function createPeer(id,initiator=false){
    tileStatus(id,'Trying to reconnect…');
    $('callStatus').textContent='Trying to reconnect video…';
    schedulePeerRecovery(id,pc,false);
+  }else if(state==='connected'||ice==='connected'||ice==='completed'){
+   clearPeerRecovery(id);
+   const label=videoTiles.get(id)?.tile.querySelector('.tile-status');
+   if(callRole==='spectator'&&video?.muted)tileStatus(id,'Tap for audio');
+   else if(label)label.remove();
+   $('callStatus').textContent='Connected';
   }else if(state!=='closed')tileStatus(id,state||'connecting');
  }
  pc.onconnectionstatechange=onPeerTransportChange;
