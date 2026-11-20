@@ -440,7 +440,7 @@ s.on('discover:search',async(d,ack)=>{
 s.on('queue:add',async(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
  if(r.queue.length>=20)return ack?.({error:'The queue is full'});
- const title=typeof d?.title==='string'?d.title.trim().replace(/[\\u0000-\\u001f<>]/g,'').slice(0,140):'';
+ const title=typeof d?.title==='string'?d.title.trim().replace(/[\u0000-\u001f<>]/g,'').slice(0,140):'';
  let item;
  if(d?.catalog!==undefined){
   const choice=catalogPlayer(d.catalog);
