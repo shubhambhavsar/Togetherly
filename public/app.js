@@ -389,6 +389,12 @@ $('mobileNavChat').onclick=async()=>{
 $('mobileClosePicker').onclick=()=>mobileClosePanels();
 $('mobileClosePeople').onclick=()=>mobileClosePanels();
 $('mobileSheetBackdrop').onclick=()=>mobileClosePanels();
+// Mobile Close must win over bubbling/focus handlers from the legacy chat drawer.
+$('closeChat').addEventListener('click',event=>{
+ if(!mobileIsCompact())return;
+ event.preventDefault();event.stopImmediatePropagation();
+ mobileClosePanels();
+},true);
 $('mobileRename').onclick=()=>$('rename').click();
 $('mobileLeave').onclick=()=>$('leave').click();
 $('mobileCatchup').onclick=()=>movieCatchupNow();
