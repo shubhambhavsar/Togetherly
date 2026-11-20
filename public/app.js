@@ -7,7 +7,7 @@ let roomQueue=[],searchReady=false,searching=false,autoJoinAttempted=false;
 const displayedChatIds=new Set(),unplayableVideos=new Set();
 try{for(const id of JSON.parse(sessionStorage.getItem('togetherly.unplayable')||'[]'))if(/^[\w-]{11}$/.test(id))unplayableVideos.add(id)}catch{}
 function markUnplayable(id){if(!id||!/^[\w-]{11}$/.test(id))return;unplayableVideos.add(id);try{sessionStorage.setItem('togetherly.unplayable',JSON.stringify([...unplayableVideos].slice(-50)))}catch{}}
-let localStream=null,callActive=false,callJoining=false,callAttempt=0,cameraInterrupted=false,
+let localStream=null,callActive=false,callJoining=false,callAttempt=0,cameraInterrupted=false,cameraNeedsRejoin=false,
  iceConfig={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
 let callMembers=[],unread=0,chatOpen=false,callMinimized=false,callViewMode='compact',callRole=null,sharingCall=false;
 const cameraMembers=()=>callMembers.filter(m=>m.role==='camera');
@@ -46,7 +46,9 @@ function showMembers(){
 socket.on('members',m=>{participants=m;showMembers();for(const id of connections.keys())if(!participants.some(p=>p.id===id))removePeer(id)});
 socket.on('call:members',members=>{
  callMembers=members;syncCallDock();showMembers();
- $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
+ $('callStatus').textContent=callRole==='camera'?'On camera — visible to room':cameraNeedsRejoin?
+  'Your camera was paused by a network interruption. Tap Join on camera to restart it.':
+  cameraMembers().length?'Cameras appear automatically':'No one on camera yet';
  // Recover if a new publisher joined while passive viewers were reconnecting.
  if(callActive&&callRole==='spectator'){
   offerAvailableCameras(members.filter(m=>m.role==='camera'&&m.sharing).map(m=>m.id))
@@ -1008,6 +1010,7 @@ socket.on('connect',()=>{
  me=socket.id;updateChatConnection();
  if(cameraInterrupted){
   cameraInterrupted=false;
+  cameraNeedsRejoin=true;
   toast('Connection restored. Camera stayed off — rejoin from People when ready.');
  }
  if(room){
@@ -1056,8 +1059,9 @@ function displayTile(id,isLocal=false){
  videoTiles.set(id,{tile,video});$('callGrid').append(tile);$('callOverlay').classList.remove('hidden');return video
 }
 function tileStatus(id,msg){const node=videoTiles.get(id)?.tile.querySelector('.tile-status');if(node)node.textContent=msg}
-function removePeer(id){
- const pc=connections.get(id);if(pc){pc.onicecandidate=null;pc.ontrack=null;pc.onconnectionstatechange=null;pc.close()}
+function removePeer(id,preserveRecovery=false){
+ if(!preserveRecovery)clearPeerRecovery(id);
+ const pc=connections.get(id);if(pc){pc.onicecandidate=null;pc.ontrack=null;pc.onconnectionstatechange=null;pc.oniceconnectionstatechange=null;pc.close()}
  connections.delete(id);candidateQueues.delete(id);remoteStreams.delete(id);
  videoTiles.get(id)?.tile.remove();videoTiles.delete(id);
 }
@@ -1117,6 +1121,78 @@ async function leaveCall(send=true){
  videoTiles.get('self')?.tile.remove();videoTiles.delete('self');
  $('callGrid').replaceChildren();$('callOverlay').classList.add('hidden');setCallUI(false)
 }
+// Per-peer ICE recovery, independent of room sync and camera publishing.
+// A temporary disconnect may self-heal, so wait before renegotiating.
+const peerRecovery=new Map();
+const PEER_RETRY_LIMIT=3;
+function clearPeerRecovery(id){
+ const recovery=peerRecovery.get(id);
+ if(recovery?.timer)clearTimeout(recovery.timer);
+ peerRecovery.delete(id);
+}
+function schedulePeerRecovery(id,pc,urgent=false){
+ if(!callActive||!socket.connected||connections.get(id)!==pc)return;
+ if(!participants.some(p=>p.id===id)||!callUser(id))return;
+ let recovery=peerRecovery.get(id);
+ if(!recovery){
+  recovery={timer:null,attempts:0,rebuilds:0,busy:false,unstableSince:Date.now()};
+  peerRecovery.set(id,recovery);
+ }
+ if(recovery.timer||recovery.busy)return;
+ const delay=urgent?1300:(recovery.attempts?7000:4500);
+ recovery.timer=setTimeout(async()=>{
+  recovery.timer=null;
+  if(connections.get(id)!==pc||!socket.connected||!callActive)return;
+  if(pc.connectionState==='connected'||['connected','completed'].includes(pc.iceConnectionState)){
+   clearPeerRecovery(id);return;
+  }
+  if(recovery.busy)return;
+  recovery.busy=true;
+  try{
+   if(recovery.attempts>=PEER_RETRY_LIMIT){
+    if(recovery.rebuilds>=1){
+     tileStatus(id,'Unable to restore video. Check network or try rejoining.');
+     $('callStatus').textContent='Video connection needs attention';
+     return;
+    }
+    recovery.rebuilds++;
+    recovery.attempts=0;
+    tileStatus(id,'Rebuilding the connection…');
+    // Preserve local media tracks: an existing camera must never request
+    // permission again or auto-publish new media from a spectator.
+    removePeer(id,true);
+    await loadIceServers();
+    if(!callActive||!socket.connected||!participants.some(p=>p.id===id)||!callUser(id))return;
+    await createPeer(id,true);
+    return;
+   }
+   if(pc.signalingState!=='stable'){
+    // Stale offers can stall during network switching; give them a short
+    // opportunity to settle, then rebuild after bounded attempts.
+    recovery.attempts++;
+    return;
+   }
+   recovery.attempts++;
+   tileStatus(id,'Restoring video connection…');
+   $('callStatus').textContent='Restoring video connection…';
+   const offer=await pc.createOffer({iceRestart:true});
+   if(connections.get(id)!==pc||!callActive||!socket.connected||pc.signalingState!=='stable')return;
+   await pc.setLocalDescription(offer);
+   if(connections.get(id)===pc&&socket.connected)
+    socket.emit('call:signal',{to:id,data:{description:pc.localDescription.toJSON()}});
+  }catch(error){
+   console.warn('Video recovery attempt failed:',error?.message||error);
+  }finally{
+   recovery.busy=false;
+   if(callActive&&socket.connected&&connections.get(id)===pc&&
+      pc.connectionState!=='connected'&&
+      !['connected','completed'].includes(pc.iceConnectionState)){
+    // One watchdog per broken peer: retries are bounded and spaced out.
+    schedulePeerRecovery(id,pc,false);
+   }
+  }
+ },delay);
+}
 async function createPeer(id,initiator=false){
  if(connections.has(id))return connections.get(id);
  if(!callActive||(callRole==='camera'&&!localStream))return null;
@@ -1128,34 +1204,27 @@ async function createPeer(id,initiator=false){
  else{pc.addTransceiver('audio',{direction:'recvonly'});pc.addTransceiver('video',{direction:'recvonly'})}
  pc.ontrack=e=>{const stream=remoteStreams.get(id);if(!stream)return;const tracks=e.streams?.[0]?.getTracks()||[e.track];for(const track of tracks)if(!stream.getTracks().some(t=>t.id===track.id))stream.addTrack(track);if(video){video.srcObject=stream;video.play().catch(()=>tileStatus(id,'Tap to hear audio'))}};
  pc.onicecandidate=e=>{if(e.candidate&&socket.connected)socket.emit('call:signal',{to:id,data:{candidate:e.candidate.toJSON()}})};
- pc.onconnectionstatechange=()=>{
-   if(connections.get(id)!==pc)return;
-   const state=pc.connectionState;
-   if(state==='connected'){
-    pc._restartAttempts=0;
-    const label=videoTiles.get(id)?.tile.querySelector('.tile-status');
-    if(callRole==='spectator'&&video?.muted)tileStatus(id,'Tap for audio');
-    else if(label)label.remove();
-    $('callStatus').textContent='Connected';
-   }else if(state==='failed'){
-    tileStatus(id,iceConfig.relayAvailable?'Connection failed — retrying':'Connection failed — TURN relay needed');
-    $('callStatus').textContent='Connection issue';
-    const attempts=pc._restartAttempts||0;
-    if(attempts>=2){toast('Unable to connect this person. Please try another network or configure TURN.');return}
-    if(me<id&&pc.signalingState==='stable'){
-      pc._restartAttempts=attempts+1;
-      setTimeout(async()=>{
-        if(connections.get(id)!==pc||pc.signalingState!=='stable'||!callActive)return;
-        try{
-          const offer=await pc.createOffer({iceRestart:true});
-          await pc.setLocalDescription(offer);
-          socket.emit('call:signal',{to:id,data:{description:pc.localDescription.toJSON()}});
-        }catch(e){console.warn('ICE retry failed',e)}
-      },1500*(attempts+1))
-    }
-   }else if(state==='disconnected')tileStatus(id,'Reconnecting…');
-   else tileStatus(id,state)
-  };
+ function onPeerTransportChange(){
+  if(connections.get(id)!==pc)return;
+  const state=pc.connectionState,ice=pc.iceConnectionState;
+  if(state==='connected'||ice==='connected'||ice==='completed'){
+   clearPeerRecovery(id);
+   const label=videoTiles.get(id)?.tile.querySelector('.tile-status');
+   if(callRole==='spectator'&&video?.muted)tileStatus(id,'Tap for audio');
+   else if(label)label.remove();
+   $('callStatus').textContent='Connected';
+  }else if(state==='failed'||ice==='failed'){
+   tileStatus(id,iceConfig.relayAvailable?'Connection interrupted — recovering':'Connection interrupted — a TURN relay may help');
+   $('callStatus').textContent='Reconnecting video…';
+   schedulePeerRecovery(id,pc,true);
+  }else if(state==='disconnected'||ice==='disconnected'){
+   tileStatus(id,'Trying to reconnect…');
+   $('callStatus').textContent='Trying to reconnect video…';
+   schedulePeerRecovery(id,pc,false);
+  }else if(state!=='closed')tileStatus(id,state||'connecting');
+ }
+ pc.onconnectionstatechange=onPeerTransportChange;
+ pc.oniceconnectionstatechange=onPeerTransportChange;
  if(initiator){const offer=await pc.createOffer();await pc.setLocalDescription(offer);socket.emit('call:signal',{to:id,data:{description:pc.localDescription.toJSON()}})}
  return pc
 }
@@ -1261,7 +1330,7 @@ async function joinCall(){
    }
    // Existing passive connections must be rebuilt when publishing starts.
    [...connections.keys()].forEach(removePeer);
-   callRole='camera';callActive=true;sharingCall=true;
+   callRole='camera';callActive=true;sharingCall=true;cameraNeedsRejoin=false;
    callMembers=result.callMembers||callMembers;
    displayTile('self',true).srcObject=stream;
    setCallUI(true);offerAvailableCameras(result.peers);
@@ -1308,4 +1377,13 @@ socket.on('call:publisher-available',async d=>{if(callActive&&callRole==='specta
 }});
 socket.on('call:peer-left',d=>removePeer(d.id));
 socket.on('call:signal',onSignal);
+// A browser returning from the background may resume before ICE notices a failure.
+document.addEventListener('visibilitychange',()=>{
+ if(document.hidden||!callActive||!socket.connected)return;
+ for(const [id,pc] of connections){
+  if(['disconnected','failed'].includes(pc.connectionState)||
+     ['disconnected','failed'].includes(pc.iceConnectionState))
+   schedulePeerRecovery(id,pc,true);
+ }
+});
 window.addEventListener('pagehide',()=>{theaterFallback=false;document.body.classList.remove('theater-lock');if(callActive)socket.emit('call:leave');localStream?.getTracks().forEach(t=>t.stop())});
