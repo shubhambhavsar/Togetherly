@@ -128,7 +128,7 @@ async function catalogTvSeasons(id){
 app.get('/api/catalog/tv/:id/seasons',async(req,res)=>{
  res.set('Cache-Control','private, no-store');
  const raw=String(req.params?.id||'');
- if(!/^[1-9]\\d{0,8}$/.test(raw))return res.status(400).json({error:'Invalid TV series ID'});
+ if(!/^[1-9]\d{0,8}$/.test(raw))return res.status(400).json({error:'Invalid TV series ID'});
  const now=Date.now(),ip=String(req.ip||'unknown'),hits=tvDetailsRate.get(ip)||{until:now+60000,n:0};
  if(now>hits.until){hits.until=now+60000;hits.n=0}
  hits.n++;tvDetailsRate.set(ip,hits);
