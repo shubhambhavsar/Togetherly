@@ -143,6 +143,34 @@ The website player will show **Enable auto sync** for a room sharing a FlexFlix 
 
 
 
+## Dual themes and automatic video-call recovery (review branch)
+
+Togetherly supports two visual experiences via a header switcher: **Private
+Cinema** (original dark) and **Living Room** (warm light with coral, plum,
+lavender). This preference is stored per browser in
+`localStorage['togetherly.appearance']`; it does not modify the room or
+other participants' visual settings. It persists across room links and reloads.
+The switch is keyboard-accessible, keeps the browser toolbar color in sync,
+and changes appearance without reinitializing the player, chat, or camera.
+
+**Call reliability:** Temporary WebRTC ICE disconnects are expected on mobile
+network switches, slow Wi-Fi, or tab/background changes. Togetherly now waits
+briefly for spontaneous recovery, then attempts bounded ICE renegotiations
+before replacing a stalled peer connection once. Successful connections and
+departing peers clear recovery timers. Returning from the background checks
+for interrupted peers. An explicit camera/microphone opt-in is always required
+after a **Socket.IO room reconnection**—Togetherly never silently restarts
+publishing; receive-only spectator viewing can resume automatically.
+
+A TURN relay remains essential for some mobile carriers, company networks,
+and restrictive NAT combinations. Configure the existing
+`METERED_TURN_DOMAIN` + `METERED_TURN_API_KEY` or the
+`TURN_URL` + `TURN_USERNAME` + `TURN_CREDENTIAL` trio in Render, **not**
+in this repository or a public message. The `/health` endpoint can report
+whether relay settings are configured, but cannot prove that the relay is
+working end-to-end. Real multi-network tests on iOS Safari and Android Chrome
+are still required; no browser-level retry policy guarantees 100% uptime.
+
 ## Movie room clock + quieter fullscreen (2026-11-20)
 
 Room movie sharing now carries a versioned **estimated timeline** alongside the
@@ -212,19 +240,34 @@ camera seats and fully synced **YouTube** playback. Movie-source playback remain
 **independent per viewer**, not cross-browser synchronized.
 
 When a viewer selects a title in Movies & Series, the existing room server generates
-a source-specific URL. The browser removes iframe sandbox attributes **only** when
-the URL exactly matches the remaining explicitly allowed VidFast source adapter;
-older arbitrary website links stay sandboxed. No compatibility confirmation click
-is needed for these exact catalogue sources. A compact **Stop player** button
-unloads the iframe without disconnecting chat or cameras.
+a source-specific URL. The browser now keeps **all** movie frames sandboxed,
+including exact-match VidFast catalogue sources, using
+`allow-scripts allow-same-origin allow-forms`. It explicitly **does not**
+enable `allow-popups`, `allow-top-navigation`, `allow-downloads`, or
+`allowfullscreen`. Basic in-frame playback and forms are permitted, but
+click-triggered new windows and navigation of the parent tab are blocked by
+the browser sandbox when it is supported.
+
+A movie provider's **own fullscreen** is disabled. Use **Togetherly Theater**
+in the player toolbar, which fullscreen-displays the parent video canvas and
+can preserve Togetherly's camera tiles above the movie. Native fullscreen of
+an external child iframe would otherwise hide camera tiles outside that frame.
+The room's `Permissions-Policy: fullscreen=(self)` additionally disallows
+cross-origin iframe fullscreen, where browser support exists.
+
+A compact Stop/Close movie button unloads the iframe without disconnecting
+chat or cameras. The web sandbox may interfere with provider authentication,
+cookies, storage, nested players, or autoplay; no provider playback can be
+guaranteed. Do **not** bypass browser security/antivirus warnings to work
+around these restrictions.
 
 Security limits: Streambert's Electron app blocks ads/trackers via its privileged
-`session.webRequest` API and denies popups with `setWindowOpenHandler`. An ordinary
-hosted website like Togetherly cannot intercept requests or window creation inside
-cross-origin provider frames. Togetherly adds a parent-side CSP direct-frame
-allowlist, no-referrer links and a best-effort beforeunload warning, **not** a
-complete ad blocker. Unrestricted movie frames may still show ads, popups or
-redirects, and a provider may refuse framing with its own CSP/X-Frame-Options.
+`session.webRequest` API and denies popups with `setWindowOpenHandler`. A hosted
+website cannot inspect or filter all requests inside a cross-origin frame.
+Browser iframe sandboxing can block `window.open` and `target=_blank` windows
+as well as top-level navigation, but **cannot guarantee** removal of in-frame
+ads or stop an embedded player replacing its own document. A provider may
+refuse framing via CSP/X-Frame-Options.
 Never enter credentials in third-party players. Browser-level ad and tracker
 protection is recommended. No licensing, playback, or synchronization guarantees.
 

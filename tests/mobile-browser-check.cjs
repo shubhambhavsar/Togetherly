@@ -36,6 +36,17 @@ async function check(){
   const unexpected=[];
   host.on('pageerror',err=>unexpected.push('host: '+err.message));
   await host.goto(origin,{waitUntil:'domcontentloaded'});
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'cinema');
+  await host.locator('#themeToggle').click();
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'lounge');
+  assert.equal(await host.locator('#themeToggle').getAttribute('aria-pressed'),'true');
+  assert.equal(await host.locator('meta[name="theme-color"]').getAttribute('content'),'#FAF5EC');
+  const lightSurface=await host.evaluate(()=>getComputedStyle(document.body).backgroundColor);
+  assert.equal(lightSurface,'rgb(250, 245, 236)','Light mode should use warm ivory, not a dark background');
+  const persistedTab=await context.newPage();
+  await persistedTab.goto(origin,{waitUntil:'domcontentloaded'});
+  assert.equal(await persistedTab.locator('html').getAttribute('data-theme'),'lounge','Theme preference should persist in browser storage');
+  await persistedTab.close();
   await host.locator('#name').fill('Mobile host');
   await host.locator('#create').click();
   await host.locator('#watch').waitFor({state:'visible',timeout:15000});
@@ -131,6 +142,69 @@ async function check(){
   await host.locator('#camera').click();
   assert.match(await host.locator('#camera').textContent(),/Turn camera on/);
   await host.locator('#camera').click();
+  const publishingBefore=await host.evaluate(()=>{
+   const track=document.querySelector('#callGrid video')?.srcObject?.getVideoTracks()[0];
+   return Boolean(track&&track.readyState==='live');
+  });
+  assert.equal(publishingBefore,true,'Camera track should still be live');
+  await host.locator('#mobileClosePeople').click();
+  await host.locator('#themeToggle').click();
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'cinema');
+  await host.locator('#themeToggle').click();
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'lounge');
+  const publishingAfter=await host.evaluate(()=>{
+   const track=document.querySelector('#callGrid video')?.srcObject?.getVideoTracks()[0];
+   return Boolean(track&&track.readyState==='live');
+  });
+  assert.equal(publishingAfter,true,'Changing themes must not restart a WebRTC camera');
+  await host.locator('#mobileNavPeople').click();
+
+  // Simulate a cross-origin player that opens an ad tab on every click and
+  // tries to take native fullscreen. Both actions must be denied while our
+  // movie controls, video and local WebRTC camera stay interactive.
+  await host.locator('#mobileClosePeople').click();
+  const unwantedTabs=[];
+  host.on('popup',popup=>{unwantedTabs.push(popup.url());popup.close().catch(()=>{})});
+  await host.route('https://vidfast.vc/movie/603',route=>route.fulfill({
+   status:200,contentType:'text/html',
+   body:`<!doctype html><html><body style="margin:0;background:#121e2c;color:white">
+    <button id="simulatedPlayer" style="width:100%;height:100vh">Tap to play sample film</button>
+    <script>
+      document.getElementById('simulatedPlayer').addEventListener('click',async()=>{
+       const popup=window.open('https://unwanted.example/', '_blank');
+       document.body.dataset.popup=popup?'opened':'blocked';
+       document.body.dataset.clicked='yes';
+       try{await document.documentElement.requestFullscreen();document.body.dataset.nativeFullscreen='allowed'}
+       catch(e){document.body.dataset.nativeFullscreen='blocked'}
+      });
+    </script></body></html>`
+  }));
+  await host.evaluate(()=>{
+   document.getElementById('videoShell').classList.add('website-mode');
+   document.getElementById('websitePlayer').classList.remove('hidden');
+   loadWebsiteFrame('https://vidfast.vc/movie/603');
+  });
+  const movieFrame=host.locator('#websiteFrame');
+  assert.equal(await movieFrame.getAttribute('sandbox'),'allow-scripts allow-same-origin allow-forms');
+  assert.equal(await movieFrame.getAttribute('allowfullscreen'),null);
+  await host.frameLocator('#websiteFrame').locator('#simulatedPlayer').click();
+  await host.frameLocator('#websiteFrame').locator('body[data-clicked="yes"]').waitFor({state:'attached'});
+  const testFrame=host.frameLocator('#websiteFrame').locator('body');
+  assert.equal(await testFrame.getAttribute('data-popup'),'blocked');
+  assert.equal(await testFrame.getAttribute('data-native-fullscreen'),'blocked');
+  assert.equal(unwantedTabs.length,0,'Sandboxed movie click must not open an unwanted tab');
+  assert.equal(host.url(),url,'Third-party player must not navigate Togetherly');
+  await host.locator('#toolbarFullscreen').click();
+  await host.locator('#videoShell.theater-mode').waitFor({state:'visible'});
+  assert.equal(await host.locator('#callOverlay').isVisible(),true,'Togetherly fullscreen must preserve call overlay');
+  await host.locator('#fullscreenToggle').click();
+  await host.locator('#videoShell.theater-mode').waitFor({state:'hidden'});
+  await host.evaluate(()=>{
+   unloadWebsiteFrame();
+   document.getElementById('videoShell').classList.remove('website-mode');
+   document.getElementById('websitePlayer').classList.add('hidden');
+  });
+  await host.locator('#mobileNavPeople').click();
 
   // Separate browser storage from the host; real guests have independent nicknames.
   const guestContext=await browser.newContext({
@@ -140,6 +214,12 @@ async function check(){
   const guest=await guestContext.newPage();
   guest.on('pageerror',err=>unexpected.push('guest: '+err.message));
   await guest.goto(url,{waitUntil:'domcontentloaded'});
+  assert.equal(await guest.locator('html').getAttribute('data-theme'),'cinema','Guest uses independent theme preference');
+  await guest.locator('#themeToggle').click();
+  assert.equal(await guest.locator('html').getAttribute('data-theme'),'lounge');
+  await guest.locator('#themeToggle').click();
+  assert.equal(await guest.locator('html').getAttribute('data-theme'),'cinema');
+  assert.equal(await host.locator('html').getAttribute('data-theme'),'lounge','Guest changes must not change host appearance');
   await guest.locator('#name').fill('Guest');
   await guest.locator('#join').click();
   await guest.locator('#watch').waitFor({state:'visible',timeout:15000});

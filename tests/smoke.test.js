@@ -506,11 +506,11 @@ test('movie embeds are restricted to the remaining exact-match source and no ove
  }
  assert.ok(html.includes('id="catalogProvider" type="hidden" value="vidfast"'));
  assert.ok(frontend.includes("return s.websiteUrl===expected"));
- assert.ok(frontend.includes("if(unrestricted)frame.removeAttribute('sandbox')"));
- assert.ok(frontend.includes("else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
- assert.ok(frontend.includes('const trusted=verifiedCatalogPlayer(s)'));
- assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted)'));
- assert.ok(frontend.includes('websiteLastUnrestricted!==trusted'));
+ assert.ok(frontend.includes("const WEBSITE_FRAME_SANDBOX='allow-scripts allow-same-origin allow-forms'"));
+ assert.ok(frontend.includes("frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
+ assert.ok(!frontend.includes("frame.removeAttribute('sandbox')"),'Movie iframe must stay sandboxed');
+ assert.ok(!frontend.includes('websiteLastUnrestricted'),'No implicit compatibility exception');
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline))'));
  assert.ok(frontend.includes("unloadWebsiteFrame()"));
  assert.ok(!frontend.includes("window.confirm(message)"));
 });
@@ -867,7 +867,7 @@ test('movie time formatting and VidFast join URL preserve exact canonical source
   'https://vidfast.vc/tv/1399/1/2');
  assert.ok(frontend.includes('websiteSelectedVersion!==s.version'),
   'New movie selection must reload even when sharing the same URL');
- assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline),trusted)'));
+ assert.ok(frontend.includes('loadWebsiteFrame(movieEmbedUrl(url,s.movieTimeline))'));
  assert.ok(frontend.includes('movieCatchupNow()'));
 });
 
@@ -1069,4 +1069,145 @@ test('mobile movie finder has a dedicated responsive detail step',()=>{
  assert.ok(css.includes('calc(46px + env(safe-area-inset-bottom))'));
  assert.ok(frontend.includes("$('mobilePickerPanel').scrollTop=0"));
  assert.ok(frontend.includes("$('catalogShareFeedback').textContent=message"));
+});
+
+
+test('two visual themes can be selected locally without sharing through the room',()=>{
+ const theme=fs.readFileSync(path.join(root,'public/theme.js'),'utf8');
+ const css=fs.readFileSync(path.join(root,'public/theme-variants.css'),'utf8');
+ assert.ok(html.includes('id="themeToggle"'));
+ assert.ok(html.includes('id="themeToggleLabel"'));
+ assert.ok(html.includes('id="themeToggleIcon"'));
+ assert.ok(html.includes('/theme.js?v=1')&&html.includes('/theme-variants.css?v=1'));
+ assert.ok(html.indexOf('/theme-variants.css?v=1')>html.indexOf('/mobile-cinema.css?v=2'));
+ assert.ok(theme.includes("const KEY='togetherly.appearance'"));
+ assert.ok(theme.includes("document.documentElement.dataset.theme=valid"));
+ assert.ok(theme.includes("localStorage.setItem(KEY,valid)"));
+ assert.ok(!theme.includes('socket.')&&!theme.includes('call:')&&!theme.includes('catalog:play'));
+ assert.ok(css.includes('html[data-theme="lounge"]'));
+ for(const screen of ['.landing-entry','#watch .source-library','#watch .watch-queue',
+  '#watch .rail-section','#watch #peoplePanel.mobile-open',
+  '#watch #chatPanel.chat-open','#watch .mobile-nav',
+  '#watch #movieCatalog.is-title-selected #catalogPlay']){
+  assert.ok(css.includes(screen),'Light theme missing '+screen);
+ }
+ assert.ok(css.includes('color-scheme:light'));
+ assert.ok(css.includes('#watch .video-shell'));
+});
+
+test('theme preference is restored per browser and switch updates accessibility',()=>{
+ const source=fs.readFileSync(path.join(root,'public/theme.js'),'utf8');
+ const listeners={},nodes=new Map(),local={};
+ const elem=id=>{
+  if(!nodes.has(id))nodes.set(id,{attributes:{},textContent:'',listeners:{},
+   setAttribute(k,v){this.attributes[k]=v},
+   addEventListener(event,fn){this.listeners[event]=fn}});
+  return nodes.get(id);
+ };
+ const storage={getItem:key=>local[key]||null,setItem:(key,value)=>local[key]=value};
+ const doc={documentElement:{dataset:{}},
+  querySelector:selector=>selector==='meta[name="theme-color"]'?elem('meta'):null,
+  getElementById:elem,addEventListener:(event,fn)=>listeners[event]=fn};
+ const run=()=>vm.runInNewContext(source,{document:doc,localStorage:storage});
+ run();listeners.DOMContentLoaded();
+ assert.equal(doc.documentElement.dataset.theme,'cinema');
+ assert.equal(elem('themeToggle').attributes['aria-pressed'],'false');
+ elem('themeToggle').listeners.click();
+ assert.equal(doc.documentElement.dataset.theme,'lounge');
+ assert.equal(local['togetherly.appearance'],'lounge');
+ assert.equal(elem('themeToggleLabel').textContent,'Private Cinema');
+ assert.equal(elem('themeToggle').attributes['aria-label'],'Switch to Private Cinema dark theme');
+ assert.equal(elem('meta').attributes.content,'#FAF5EC');
+ run();listeners.DOMContentLoaded();
+ assert.equal(doc.documentElement.dataset.theme,'lounge','Theme should survive reload');
+ elem('themeToggle').listeners.click();
+ assert.equal(doc.documentElement.dataset.theme,'cinema');
+ assert.equal(local['togetherly.appearance'],'cinema');
+ assert.equal(elem('themeToggle').attributes['aria-pressed'],'false');
+});
+
+test('WebRTC reconnect waits for transient drops, restarts ICE, and cancels upon recovery',async()=>{
+ const start=frontend.indexOf('const peerRecovery=new Map();');
+ const end=frontend.indexOf('async function createPeer(',start);
+ assert.ok(start>0&&end>start,'Recovery controller should be isolated');
+ const source=frontend.slice(start,end);
+ const pending=[],sent=[],status=[];
+ const context={
+  callActive:true,room:'room-a',
+  participants:[{id:'guest'}],
+  callUser:()=>({role:'camera'}),
+  socket:{connected:true,emit:(...v)=>sent.push(v)},
+  connections:new Map(),
+  tileStatus:(id,message)=>status.push(message),
+  $:()=>({textContent:''}),
+  loadIceServers:async()=>{},
+  removePeer:()=>{},
+  createPeer:async()=>{},
+  Date,
+  setTimeout:(fn,delay)=>{const handle={fn,delay,canceled:false};pending.push(handle);return handle},
+  clearTimeout:handle=>{handle.canceled=true},
+  console
+ };
+ const pc={
+  connectionState:'disconnected',iceConnectionState:'disconnected',
+  signalingState:'stable',localDescription:{toJSON:()=>({type:'offer',sdp:'ice-restart'})},
+  async createOffer(options){assert.equal(options.iceRestart,true);return{type:'offer'}},
+  async setLocalDescription(){}
+ };
+ context.connections.set('guest',pc);
+ vm.runInNewContext(source+'\nthis.schedule=schedulePeerRecovery;this.clearRecovery=clearPeerRecovery;this.getRec=()=>peerRecovery.get("guest");',context);
+ context.schedule('guest',pc);
+ assert.equal(pending[0].delay,4500,'Temporary disconnected state needs a grace period');
+ assert.equal(sent.length,0);
+ await pending.shift().fn();
+ assert.equal(sent.length,1);
+ assert.equal(sent[0][0],'call:signal');
+ assert.equal(context.getRec().attempts,1);
+ pc.connectionState='connected';pc.iceConnectionState='connected';
+ context.clearRecovery('guest');
+ assert.equal(context.getRec(),undefined);
+ const last=pending.at(-1);
+ assert.equal(last.canceled,true,'Any pending watchdog must be canceled once connected');
+ context.schedule('guest',pc);
+ assert.equal(pending.length,1,'Do not restart a healthy connection');
+ pc.connectionState='disconnected';pc.iceConnectionState='disconnected';
+ context.schedule('guest',pc);
+ assert.equal(pending.length,2,'A new drop should receive a fresh grace period');
+ assert.equal(pending.at(-1).delay,4500);
+ context.clearRecovery('guest');
+ pc.iceConnectionState='connected';pc.connectionState='disconnected';
+ context.schedule('guest',pc);
+ assert.equal(pending.length,3,'Disconnected aggregate transport still needs recovery even if ICE substate is healthy');
+});
+
+test('WebRTC recovery never restarts a peer who has left the room',()=>{
+ const source=frontend.slice(frontend.indexOf('const peerRecovery=new Map();'),
+  frontend.indexOf('async function createPeer(',frontend.indexOf('const peerRecovery=new Map();')));
+ assert.ok(source.includes('participants.some(p=>p.id===id)'));
+ assert.ok(source.includes('!callActive||!socket.connected'));
+ assert.ok(source.includes("pc.createOffer({iceRestart:true})"));
+ assert.ok(source.includes('removePeer(id,true)'),'Bounded rebuild must preserve camera tracks');
+ assert.ok(source.includes('PEER_RETRY_LIMIT=3'));
+ assert.ok(frontend.includes('document.addEventListener(\'visibilitychange\''));
+ assert.ok(frontend.includes('cameraNeedsRejoin=true'));
+ assert.ok(frontend.includes('Your camera was paused by a network interruption'));
+ assert.ok(frontend.includes("callRole='camera';callActive=true;sharingCall=true;cameraNeedsRejoin=false"));
+});
+
+test('movie frame blocks popups and nested fullscreen while keeping Togetherly theater available',()=>{
+ const start=html.indexOf('<iframe id="websiteFrame"');
+ const end=html.indexOf('</iframe>',start);
+ assert.ok(start>0&&end>start,'Movie frame missing');
+ const iframe=html.slice(start,end);
+ assert.ok(iframe.includes('sandbox="allow-scripts allow-same-origin allow-forms"'));
+ for(const permission of ['allow-popups','allow-top-navigation','allow-downloads','allow-presentation',
+  'allowfullscreen','fullscreen;']){
+  assert.ok(!iframe.includes(permission),'Unwanted frame permission: '+permission);
+ }
+ assert.ok(!frontend.includes("frame.removeAttribute('sandbox')"));
+ assert.ok(frontend.includes("frame.removeAttribute('allowfullscreen')"));
+ assert.ok(frontend.includes("frame.setAttribute('allow','autoplay; encrypted-media; picture-in-picture')"));
+ assert.ok(backend.includes('fullscreen=(self)'));
+ assert.ok(frontend.includes('theaterShell.requestFullscreen('));
+ assert.ok(html.includes('id="callOverlay"'));
 });
