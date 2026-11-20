@@ -266,6 +266,9 @@
  .catalog-play-options button{width:100%}
 }
 
+#videoShell.website-mode .website-player.click-protected iframe{
+ pointer-events:none!important;
+}
 /* Local interaction shield: interception happens OUTSIDE the cross-origin
    iframe. Clicking the protected video never forwards that click to the
    third-party page. Temporary unlock cannot promise popup prevention. */
