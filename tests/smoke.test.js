@@ -358,7 +358,7 @@ test('website iframe is sandboxed and explicitly labels unsynchronized viewing',
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
  assert.ok(html.includes('id="openWebsite"')&&html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('id="websiteForm"')&&html.includes('id="websiteURL"'));
- assert.ok(html.includes('/website-player.css?v=7'));
+ assert.ok(html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('Never enter passwords in an embedded page.'));
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'Website URL must be shared through validated server event');
  assert.ok(frontend.includes('playback not synchronized'),'Do not falsely claim third-party playback synchronization');
@@ -446,7 +446,7 @@ test('website safety controls stop unsafe embeds without disconnecting the room'
  assert.ok(html.includes('id="websiteStopped"'));
  assert.ok(html.includes('rel="noopener noreferrer nofollow"'));
  assert.ok(html.includes('referrerpolicy="no-referrer"'));
- assert.ok(html.includes('/website-player.css?v=7')&&html.includes('/app.js?v=18'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=19'));
  assert.ok(css.includes('.website-player-warning{z-index:4}'));
  assert.ok(backend.includes('geolocation=()')&&backend.includes('clipboard-write=(self)'));
  assert.ok(backend.includes('camera=(self), microphone=(self)'));
@@ -566,7 +566,7 @@ test('optional FlexFlix suggestion only prefills the URL, with explicit sharing 
  assert.equal(loaded,false,'Clicking suggestion must never broadcast or load a website');
  assert.match(feedback,/choose Show website/i);
  assert.ok(frontend.includes("socket.timeout(9000).emit('website'"),'User still must submit the normal shared URL form');
- assert.ok(html.includes('/website-player.css?v=7')&&html.includes('/app.js?v=18'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=19'));
 });
 
 test('companion scope and drift correction thresholds',()=>{
@@ -634,7 +634,7 @@ test('FlexFlix sync opt-in is wired without reading cross-origin iframe DOM',()=
  const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
  assert.ok(html.includes('id="websiteSyncToggle"')&&html.includes('id="websiteSyncStatus"'));
  assert.ok(html.includes('companion-extension'));
- assert.ok(html.includes('/app.js?v=18')&&html.includes('/website-player.css?v=7'));
+ assert.ok(html.includes('/app.js?v=19')&&html.includes('/website-player.css?v=8'));
  assert.ok(frontend.includes("socket.emit('website:sample'"));
  assert.ok(frontend.includes("socket.on('website:timeline'"));
  assert.ok(frontend.includes("websiteSyncPost('TARGET'"));
@@ -733,7 +733,74 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=18')&&html.includes('/website-player.css?v=7'));
+ assert.ok(html.includes('/app.js?v=19')&&html.includes('/website-player.css?v=8'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
- assert.ok(html.includes('Use only content you'));
+ assert.ok(html.includes('Only watch content you are authorized to access'));
+});
+
+test('movie title suggestions work without a TMDB key using Wikidata IDs',async()=>{
+ const routes={},calls=[];
+ const exp=()=>({disable(){},use(){},get:(p,fn)=>routes[p]=fn});exp.static=()=>()=>{};
+ class FakeIO{on(){}to(){return{emit(){}}}}
+ const fakeRequire=id=>id==='express'?exp:id==='http'?{createServer:()=>({listen(){}})}:
+  id==='socket.io'?{Server:FakeIO}:id==='crypto'?{randomBytes:n=>({toString:()=> 'd'.repeat(n*2)})}:
+  id==='path'?{join:(...p)=>p.join('/')}:require(id);
+ const makeClaim=value=>[{rank:'normal',mainsnak:{datavalue:{value}}}];
+ vm.runInNewContext(backend,{
+  require:fakeRequire,URL:require('node:url').URL,process:{env:{PORT:'3000'}},
+  AbortSignal:{timeout:()=>({})},console,
+  fetch:async url=>{
+   const dest=new URL(String(url));calls.push(dest);
+   assert.equal(dest.hostname,'www.wikidata.org','No secret or untrusted provider should be queried');
+   const action=dest.searchParams.get('action');
+   if(action==='wbsearchentities')return{ok:true,json:async()=>({search:[
+    {id:'Q100',label:'Inception',description:'2010 film'},
+    {id:'Q101',label:'An actor',description:'actor'},
+    {id:'Q102',label:'Inception series',description:'television series'},
+    {id:'Q103',label:'Inception duplicate',description:'film'}
+   ]})};
+   if(action==='wbgetentities')return{ok:true,json:async()=>({entities:{
+    Q100:{labels:{en:{value:'Inception'}},descriptions:{en:{value:'2010 science fiction film'}},
+      claims:{P4947:makeClaim('27205')}},
+    Q101:{labels:{en:{value:'An actor'}},claims:{}},
+    Q102:{labels:{en:{value:'Inception series'}},descriptions:{en:{value:'2017 television series'}},
+      claims:{P4983:makeClaim('1399')}},
+    Q103:{labels:{en:{value:'Inception copy'}},claims:{P4947:makeClaim('27205')}}
+   }})};
+   throw Error('Unexpected Wikidata action '+action);
+  },__dirname:'/app',setInterval:()=>({unref(){}})
+ },{filename:'server.js'});
+ const request=async q=>{
+  const res={code:200,body:null,set(){return this},status(n){this.code=n;return this},json(v){this.body=v;return this}};
+  await routes['/api/catalog/search']({query:{q},ip:'unit-test'},res);return res;
+ };
+ assert.equal((await request('i')).code,400);
+ const result=await request('Inception');
+ assert.equal(result.code,200);
+ assert.equal(result.body.source,'Wikidata');
+ assert.equal(result.body.results.length,2,'Only supported movie/TV metadata IDs should appear; duplicates excluded');
+ assert.deepEqual(result.body.results.map(x=>[x.id,x.type]),[[27205,'movie'],[1399,'tv']]);
+ assert.equal(result.body.results[0].title,'Inception');
+ assert.equal(result.body.results[0].year,'2010');
+ assert.equal(calls.length,2,'Metadata lookup should require only a Wikidata search and details call');
+ await request('Inception');
+ assert.equal(calls.length,2,'Repeated title searches should use the cache');
+});
+test('movie discovery never asks users to know a TMDB ID',()=>{
+ const css=fs.readFileSync(path.join(root,'public/website-player.css'),'utf8');
+ assert.ok(html.includes('id="catalogQuery"')&&html.includes('placeholder="Search a movie or series'));
+ assert.ok(html.includes('data-catalog-query="Interstellar"'));
+ assert.ok(html.includes('id="catalogPlayForm" class="catalog-play-form hidden"'),'Watch options should appear only after selecting a title');
+ assert.ok(html.includes('id="catalogId" type="hidden"'),'TMDB IDs must be internal');
+ assert.ok(html.includes('id="catalogType" type="hidden"'));
+ assert.ok(!html.includes('>TMDB ID<'),'Do not show technical movie IDs to viewers');
+ assert.ok(frontend.includes("$('catalogQuery').addEventListener('input'"),'Suggestions must search while typing');
+ assert.ok(frontend.includes('setTimeout(catalogSearchNow,390)'),'Search should be debounced');
+ assert.ok(frontend.includes("catalogSearchController.abort()"),'Rapid typing must cancel stale requests');
+ assert.ok(frontend.includes("title.textContent=item.title"),'Search result titles must remain safe text');
+ assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
+ assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
+ assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
+ assert.ok(html.includes('/website-player.css?v=8')&&html.includes('/app.js?v=19'));
+ assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
