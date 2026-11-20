@@ -561,7 +561,9 @@ test('automatic sandbox-free embed mode is restricted to server-defined catalogu
  assert.ok(frontend.includes("return s.websiteUrl===expected"));
  assert.ok(frontend.includes("if(unrestricted)frame.removeAttribute('sandbox')"));
  assert.ok(frontend.includes("else frame.setAttribute('sandbox',WEBSITE_FRAME_SANDBOX)"));
- assert.ok(frontend.includes("loadWebsiteFrame(url,verifiedCatalogPlayer(s))"));
+ assert.ok(frontend.includes('const trusted=verifiedCatalogPlayer(s)'));
+ assert.ok(frontend.includes('loadWebsiteFrame(url,trusted)'));
+ assert.ok(frontend.includes('websiteLastUnrestricted!==trusted'));
  assert.ok(frontend.includes("unloadWebsiteFrame()"));
  assert.ok(!frontend.includes("window.confirm(message)"));
 });
