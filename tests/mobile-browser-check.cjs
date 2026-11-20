@@ -124,11 +124,11 @@ async function check(){
   await host.locator('#mobileNav').waitFor({state:'visible'});
   const url=host.url();
   assert.match(url,/\/room\/[a-f\d]{24}$/);
-  assert.equal(await host.locator('#mobilePickerPanel').isVisible(),false);
+  await host.locator('#mobilePickerPanel').waitFor({state:'visible'});
+  assert.equal(await host.locator('#roomEmptyState').isVisible(),true,
+    'Empty room should not expose the placeholder YouTube video');
   const overflow=await host.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth);
   assert.ok(overflow<=2,'Unexpected mobile horizontal scroll: '+overflow);
-  await host.locator('#mobileNavChoose').click();
-  await host.locator('#mobilePickerPanel').waitFor({state:'visible'});
   assert.equal(await host.locator('#mobileNavChoose').getAttribute('aria-expanded'),'true');
   // Stable local metadata reproduces the Android screenshot without TMDB API dependency.
   await host.route('**/api/catalog/search*',route=>route.fulfill({
@@ -186,6 +186,10 @@ async function check(){
   assert.ok(selection.meta.width>=150,'Title metadata column collapsed');
   assert.ok(selection.poster.width>=60,'Selected poster missing');
   assert.ok(selection.scrollWidth<=2,'Selected detail must not create horizontal scrolling');
+  await host.locator('#catalogQueue').click();
+  await host.waitForFunction(()=>Number(document.querySelector('#queueCount').textContent)===1,null,{timeout:10000});
+  assert.match(await host.locator('#queueList').textContent(),/Friends/);
+  assert.match(await host.locator('#queueList').textContent(),/S1 E1/);
   await host.locator('#catalogPlay').scrollIntoViewIfNeeded();
   const playBox=await host.locator('#catalogPlay').boundingBox();
   assert.ok(playBox.width>=300&&playBox.height>=48,'Primary watch button must be wide and tappable');
@@ -309,11 +313,27 @@ async function check(){
   await shield.waitFor({state:'visible'});
   await shield.click({position:{x:12,y:12}});
   assert.equal(unwantedTabs.length,0,'Permanent shield still intercepts taps after reload');
+  await host.waitForFunction(()=>!document.querySelector('#websitePlayer').classList.contains('controls-visible'),
+   null,{timeout:9000});
+  assert.equal(await shield.isVisible(),true,'Protective layer must stay active while controls are hidden');
+  await shield.click({position:{x:10,y:10}});
+  await host.locator('#websitePlayer.controls-visible').waitFor({state:'visible'});
+  const movieControls=await host.evaluate(()=>{
+   const shell=document.getElementById('videoShell').getBoundingClientRect();
+   return ['movieLocalBack','movieLocalPlay','movieLocalPause','movieLocalForward','movieLocalFullscreen']
+    .map(id=>{const r=document.getElementById(id).getBoundingClientRect();
+     return{id,width:r.width,height:r.height,x:r.x,right:r.right,
+      within:r.x>=shell.x-2&&r.right<=shell.right+2}});
+  });
+  assert.ok(movieControls.every(x=>x.within&&x.height>=40),
+   'Compact control strip must fit the phone: '+JSON.stringify(movieControls));
   assert.equal(host.url(),url,'Third-party frame must not navigate Togetherly in test');
-  await host.locator('#toolbarFullscreen').click();
+  await host.locator('#movieLocalFullscreen').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'visible'});
   assert.equal(await host.locator('#callOverlay').isVisible(),true,'Theater must keep camera tiles above movie');
-  await host.locator('#fullscreenToggle').click();
+  assert.equal(await host.locator('#theaterDock').isVisible(),false,
+   'Fullscreen action belongs in the compact movie controls');
+  await host.locator('#movieLocalFullscreen').click();
   await host.locator('#videoShell.theater-mode').waitFor({state:'hidden'});
   await host.evaluate(()=>{
    unloadWebsiteFrame();
@@ -343,6 +363,7 @@ async function check(){
   await guest.locator('#name').fill('Guest');
   await guest.locator('#join').click();
   await guest.locator('#watch').waitFor({state:'visible',timeout:15000});
+  await guest.locator('#mobilePickerPanel').waitFor({state:'visible'});
   const guestLayout=await guest.evaluate(()=>({
    landingHidden:document.getElementById('landing').hidden,
    landingDisplay:getComputedStyle(document.getElementById('landing')).display,
