@@ -81,31 +81,49 @@
 }
 #watch #catalogQueue:disabled{opacity:.55;cursor:wait}
 #watch #catalogPlay,#watch #catalogQueue{min-height:44px}
+/* Desktop layout: the Discover library is a CHILD of .watch-stage, not
+   a sibling of it. Never hide the parent stage to show its child. */
 @media(min-width:861px){
- #watch.room-discover-first .theater-main{
-  display:flex!important;flex-direction:column!important;gap:16px;
+ #watch.room-discover-first .theater-main{min-width:0}
+ #watch.room-discover-first .watch-stage{
+  display:flex!important;flex-direction:column;gap:0;
+  overflow:visible!important;min-height:0!important;
+  padding:0!important;background:transparent!important;
+  box-shadow:none!important;border:0!important;
  }
- #watch.room-discover-first .theater-main>.source-library{order:-2}
- /* Keep the empty player stage available as a resilient fallback. Hiding it
-    made the room effectively blank when the discovery library was suppressed
-    by a browser-specific or cached mobile rule. */
- #watch.room-discover-first .theater-main>.watch-stage{
-  display:block!important;order:-1;min-height:210px;
+ #watch.room-discover-first .watch-stage>.source-library{
+  display:block!important;position:relative!important;
+  order:-2!important;visibility:visible!important;opacity:1!important;
+  max-height:none!important;min-height:310px;
+  margin:0 0 18px!important;overflow:visible!important;
+  padding:clamp(20px,2.4vw,30px)!important;
+  border-radius:18px;
  }
- #watch.room-discover-first #videoShell{min-height:190px}
- #watch.room-discover-first .theater-main>.player-toolbar{order:0}
- #watch.room-discover-first .theater-main>.source-library{
-  display:block!important;visibility:visible!important;opacity:1!important;
-  position:relative!important;max-height:none!important;
-  min-height:280px!important;overflow:visible!important;
-  margin:0 0 12px!important;order:-2;
+ #watch.room-discover-first .watch-stage>.source-library .source-panel:not(.hidden){display:block!important}
+ /* The discovery page is the primary experience before a title is chosen.
+    The empty player is still reachable through the room Watch navigation. */
+ #watch.room-discover-first .watch-stage>#videoShell{
+  order:-1;min-height:190px;max-height:220px;
  }
- #watch.room-discover-first .source-panel:not(.hidden){display:block!important}
- #watch.room-discover-first .theater-main>.watch-queue{order:1}
- #watch.room-discover-first .source-library{
-  display:block!important;
-  border-radius:19px;padding:clamp(20px,3vw,32px)!important;
- }
+ #watch.room-discover-first .watch-stage>.player-toolbar{order:0}
+ #watch.room-discover-first .watch-stage>.notice{order:1}
+ #watch.room-discover-first .watch-queue{margin-top:0}
+
+ /* Keep icons proportional to their labels, with consistent interaction sizes. */
+ #watch .room-actions button{min-height:38px}
+ #watch .player-toolbar .toolbar-actions{align-items:center;gap:9px}
+ #watch .player-toolbar .toolbar-actions button{min-height:38px;gap:7px}
+ #watch .player-toolbar .toolbar-actions button svg,
+ #watch .theater-toggle svg,
+ #watch .call-bubble svg{width:18px!important;height:18px!important;flex:none}
+ #watch .room-actions #copy{font-size:12px}
+ #watch .source-tabs .source-tab{min-height:42px}
+ #watch .watch-queue #queueExplore{font-size:12px;min-height:34px;padding:7px 9px}
+ #watch #videoShell .movie-local-button{font-size:12px!important;line-height:1.15;letter-spacing:0}
+ #watch #videoShell #movieLocalFullscreen{font-size:19px!important;line-height:1}
+ #watch #videoShell #movieLocalBack,
+ #watch #videoShell #movieLocalForward{font-size:12px!important}
+ #watch .icon-control{width:38px;height:38px;min-width:38px;font-size:17px}
 }
 @media(max-width:860px),(pointer:coarse) and (max-width:1050px){
  /* Keep fixed mobile navigation in a full-height room even when the new
