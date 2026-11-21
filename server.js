@@ -264,7 +264,7 @@ app.get('/api/rtc',async(req,res)=>{
 const searchCache=new Map(),searchIndex=new Map(),searchInflight=new Map(),searchRates=new Map();
 const searchBudget={day:'',uses:0};
 const SEARCH_TTL_MS=2*60*60*1000,SEARCH_INDEX_TTL_MS=6*60*60*1000;
-const cleanSearch=q=>String(q||'').trim().replace(/\\s+/g,' ').toLowerCase();
+const cleanSearch=q=>String(q||'').trim().replace(/\s+/g,' ').toLowerCase();
 const pipedApiBase=(()=>{
  const value=process.env.PIPED_API_URL===undefined?'https://pipedapi.kavin.rocks':process.env.PIPED_API_URL;
  if(!value||value==='disabled')return null;
@@ -272,7 +272,7 @@ const pipedApiBase=(()=>{
   const url=new URL(value);
   if(url.protocol!=='https:'||url.username||url.password||url.port||url.search||url.hash||
     !/^[a-z0-9.-]+$/i.test(url.hostname)||url.hostname==='localhost'||
-    /^(?:\\d+\\.){3}\\d+$/.test(url.hostname)||!url.hostname.includes('.'))return null;
+    /^(?:\d+\.){3}\d+$/.test(url.hostname)||!url.hostname.includes('.'))return null;
   return url.origin;
  }catch{return null}
 })();
@@ -286,7 +286,7 @@ function storeSearch(q,items,provider){
  }
 }
 function searchLocalIndex(q){
- const tokens=cleanSearch(q).split(/\\s+/).filter(x=>x.length>1);
+ const tokens=cleanSearch(q).split(/\s+/).filter(x=>x.length>1);
  if(!tokens.length)return [];
  const results=[];
  for(const item of searchIndex.values()){
@@ -314,7 +314,7 @@ async function searchPiped(q){
   try{
    const watch=new URL(String(entry.url||''),'https://www.youtube.com');
    if(['youtube.com','www.youtube.com','m.youtube.com'].includes(watch.hostname))
-    id=watch.pathname==='/watch'?watch.searchParams.get('v'):watch.pathname.match(/^\\/(?:shorts|live|embed)\\/([\\w-]{11})/)?.[1];
+    id=watch.pathname==='/watch'?watch.searchParams.get('v'):watch.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{11})/)?.[1];
    else if(['youtu.be','www.youtu.be'].includes(watch.hostname))id=watch.pathname.slice(1);
   }catch{}
   if(!/^[A-Za-z0-9_-]{11}$/.test(id||'')||seen.has(id))continue;
