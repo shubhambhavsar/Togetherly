@@ -24,12 +24,19 @@ Open http://localhost:3000. The app needs an HTTPS URL to access the camera/micr
 ## Production / Render
 Render is set to automatically deploy the `main` branch. A web service runs `npm start`, which first runs `npm test`. No database is required for this MVP; room video choices, queue and messages are held in process memory and reset when the service restarts, although a valid room link can reopen the room.
 
-## YouTube discovery (optional)
-To enable in-app searches, create your own Google Cloud API key with the **YouTube Data API v3** enabled and set `YOUTUBE_API_KEY` in the Render service's Environment settings. **Do not place the key in GitHub or browser code.**
+## Hybrid YouTube discovery (Piped + official fallback)
 
-Searches use the official API with embeddable-video filtering, a per-user limit and a conservative daily request budget. They still consume your Google Cloud API quota (typically 100 units per search); the app does not download, remove ads from, or rebroadcast YouTube streams. Some titles cannot be embedded or are region restricted.
+Togetherly searches video **metadata only**. A Piped instance is the first source of new results; results are normalized into YouTube video IDs, titles, and uploader names. The **official YouTube IFrame Player** still handles playback, rooms, queue, and synchronization. No Piped streams, proxy playback URLs, or downloads are used.
 
-Without the key, users can browse their recently watched videos, play the shared queue, open YouTube to discover something, copy its link and use **Paste** on Togetherly. Full search is **not available** until an API key is configured.
+- Default public instance: `https://pipedapi.kavin.rocks`. To use another HTTPS instance, set `PIPED_API_URL=https://your-piped-api.example` in Render's Environment settings. Set `PIPED_API_URL=disabled` to disable the experimental provider.
+- Optionally set `YOUTUBE_API_KEY` (YouTube Data API v3) for official search fallback if Piped fails or returns no playable metadata. Keep secrets on the server; never commit an API key.
+- Exact repeated queries are cached for **2 hours**, shared across connected users; previously discovered video metadata can satisfy related queries locally for up to **6 hours**. Cache and index are **in-memory** and reset on Render restart.
+- Identical simultaneous requests are deduplicated; a burst guard allows up to **60 uncached new searches per minute per connection address**. Cached queries are not rate-limited. The previous 12-per-hour limit has been removed.
+- Existing YouTube API fallback retains a **70 fresh search calls/day** internal budget (and each official request consumes Google quota). Piped providers have their own traffic limits, uptime and possible access restrictions; this is **not unlimited guaranteed search**.
+- Search queries sent to an external Piped instance are disclosed in the discovery UI. Piped results are unverified: some videos may be unavailable or block embedding. The existing YouTube player error UI allows choosing another video.
+- If both upstream providers fail, Togetherly returns locally indexed matches where possible or lets people paste a direct YouTube link. The application does not circumvent player restrictions, download video, remove ads, or rebroadcast streams.
+
+**Compliance caveat:** Before using scraped/indirect YouTube data in a public production app, review YouTube's API Services Developer Policies and the Piped instance's terms. Google's policies restrict obtaining scraped YouTube data and attempts to bypass quota. For strict policy compliance, disable Piped and rely on official API caching, link paste and an approved quota increase.
 
 ## Camera calling and TURN
 Togetherly uses peer-to-peer WebRTC with STUN, plus optional Metered TURN when valid credentials are configured. Watching a shared camera still requires a media connection for each spectator. Without working TURN, viewers on some mobile networks may not receive the camera feeds; the movie and chat continue independently. For reliable larger groups, a managed SFU would be a future integration.
