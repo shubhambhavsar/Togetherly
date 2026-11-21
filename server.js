@@ -386,11 +386,12 @@ async function searchHybrid(q,clientKey='anonymous'){
  rate.count++;searchRates.set(clientKey,rate);
  if(searchRates.size>3000)searchRates.clear();
  const pending=(async()=>{
-  let failure=null;
+  let failure=null,pipedReturnedEmpty=false;
   if(pipedApiBase){
    try{
     const items=await searchPiped(q);
     if(items.length){storeSearch(q,items,'piped');return {items,provider:'piped',cached:false}}
+    pipedReturnedEmpty=true;
    }catch(error){failure=error;console.warn('Piped search unavailable:',error.message)}
   }
   if(process.env.YOUTUBE_API_KEY){
@@ -400,6 +401,7 @@ async function searchHybrid(q,clientKey='anonymous'){
    }catch(error){failure=error;console.warn('YouTube search unavailable:',error.message)}
   }
   if(local.length)return {items:local,provider:'library',cached:true,notice:'Showing previously discovered videos; live search is unavailable.'};
+  if(pipedReturnedEmpty){storeSearch(q,[],'piped');return {items:[],provider:'piped',cached:false}}
   throw Error('Video search temporarily unavailable. '+(failure?'Try again shortly or paste a YouTube link.':'Configure a search provider or paste a link.'));
  })();
  searchInflight.set(key,pending);
