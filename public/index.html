@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/simplify.css?v=1"><link rel="stylesheet" href="/cinema-dock.css?v=1">
 <link rel="stylesheet" href="/compact-mobile-dock.css?v=1"><link rel="stylesheet" href="/mobile-chat-fix.css?v=1"><link rel="stylesheet" href="/no-fullscreen-chat.css?v=1"><link rel="stylesheet" href="/website-player.css?v=11"><link rel="stylesheet" href="/watch-redesign.css?v=4"><link rel="stylesheet" href="/mobile-cinema.css?v=2"><link rel="stylesheet" href="/theme-variants.css?v=1"><link rel="stylesheet" href="/mobile-landing.css?v=1">
 <link rel="stylesheet" href="/room-experience.css?v=3">
+<link rel="stylesheet" href="/discovery-sections.css?v=1">
 </head>
 <body>
 <header class="site-header">
@@ -315,13 +316,25 @@
       <button type="button" data-query="travel documentaries">Travel</button>
     </div>
     <div id="searchHint" class="search-hint" role="status"></div>
-    <div id="recentSection" class="recent-section"><h3>Recently watched on this device</h3><div id="recentList" class="search-results"></div></div>
-    <div id="discoverResults" class="search-results"></div>
+    <section id="recentSection" class="recent-section" aria-labelledby="recentHeading">
+      <span class="discover-section-kicker">Your watch history · this device</span>
+      <h3 id="recentHeading">Recently watched</h3>
+      <div id="recentList" class="search-results"></div>
+    </section>
+    <section id="searchSection" class="search-results-section hidden" aria-labelledby="searchResultsHeading">
+      <header class="search-results-heading">
+        <span class="discover-section-kicker">New discoveries</span>
+        <h3 id="searchResultsHeading">Search results</h3>
+        <p id="searchResultQuery" class="search-result-query"></p>
+      </header>
+      <div id="discoverResults" class="search-results"></div>
+      <p id="searchResultsEmpty" class="search-results-empty hidden" role="status"></p>
+    </section>
     <div class="discover-footer"><span>Search may contact a third-party Piped instance. Video availability and embedding vary by country.</span><a id="openYouTubeSearch" target="_blank" rel="noopener noreferrer" href="https://www.youtube.com/">Browse YouTube ↗</a></div>
   </div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=29"></script>
+<script src="/app.js?v=30"></script>
 </body>
 </html>
