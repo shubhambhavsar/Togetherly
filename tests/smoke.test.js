@@ -1433,3 +1433,55 @@ test('compact overlaid movie controls remain protected, auto-hide, and combine f
  assert.ok(css.includes('#videoShell.website-mode + .player-toolbar .toolbar-actions #toolbarFullscreen'));
  assert.ok(css.includes('#videoShell .movie-local-hint{'));
 });
+
+
+test('Piped hybrid discovery accepts only video metadata, deduplicates and caches results',async()=>{
+ const start=backend.indexOf('const searchCache='),end=backend.indexOf("app.get('/room/:id'",start);
+ assert.ok(start>0&&end>start,'Hybrid search module must be present');
+ let requests=0;
+ const context={URL,process:{env:{PIPED_API_URL:'https://pipedapi.kavin.rocks'}},
+  app:{get(){}},console:{warn(){}},AbortSignal:{timeout:()=>({})},
+  fetch:async url=>{
+   requests++;
+   assert.equal(url.hostname,'pipedapi.kavin.rocks');
+   assert.equal(url.pathname,'/search');
+   assert.equal(url.searchParams.get('filter'),'videos');
+   return {ok:true,headers:{get:()=>null},json:async()=>({items:[
+    {type:'stream',url:'/watch?v=abcdefghijk',title:'Amazing science video',uploaderName:'Science Channel'},
+    {type:'stream',url:'/watch?v=abcdefghijk',title:'Duplicate video'},
+    {type:'stream',url:'https://example.com/watch?v=aaaaaaaaaaa',title:'Invalid source'},
+    {type:'channel',url:'/channel/abc',name:'Not a video'}
+   ]})};
+  }};
+ vm.runInNewContext(backend.slice(start,end),context);
+ const first=await vm.runInNewContext("searchHybrid('Amazing science','guest')",context);
+ assert.equal(first.provider,'piped');
+ assert.equal(first.items.length,1);
+ assert.equal(first.items[0].id,'abcdefghijk');
+ assert.equal(first.items[0].channel,'Science Channel');
+ assert.equal(first.items[0].eligibility,'unverified');
+ const second=await vm.runInNewContext("searchHybrid('  AMAZING   science  ','guest')",context);
+ assert.equal(second.cached,true);
+ assert.equal(requests,1,'Identical normalized search must not generate another upstream request');
+});
+test('Piped outage falls back to YouTube metadata and does not expose direct streams',async()=>{
+ const start=backend.indexOf('const searchCache='),end=backend.indexOf("app.get('/room/:id'",start);
+ let pipedAttempts=0,youtubeCalls=0;
+ const context={URL,process:{env:{PIPED_API_URL:'https://pipedapi.kavin.rocks',YOUTUBE_API_KEY:'test-only'}},
+  app:{get(){}},console:{warn(){}},AbortSignal:{timeout:()=>({})},
+  fetch:async url=>{
+   if(url.hostname==='pipedapi.kavin.rocks'){pipedAttempts++;throw Error('Public instance offline')}
+   assert.equal(url.hostname,'www.googleapis.com');youtubeCalls++;
+   if(url.pathname.endsWith('/search'))return {ok:true,json:async()=>({items:[
+    {id:{videoId:'abcdefghijk'},snippet:{title:'Official result',channelTitle:'Channel'}}
+   ]})};
+   return {ok:true,json:async()=>({items:[{id:'abcdefghijk',status:{embeddable:true,privacyStatus:'public'},contentDetails:{}}]})};
+  }};
+ vm.runInNewContext(backend.slice(start,end),context);
+ const result=await vm.runInNewContext("searchHybrid('Official result','guest')",context);
+ assert.equal(result.provider,'youtube');
+ assert.equal(result.items[0].eligibility,'prechecked');
+ assert.equal(youtubeCalls,2);
+ assert.equal(pipedAttempts,1);
+ assert.equal(result.items[0].url,undefined,'Search should never pass extracted streams to players');
+});
