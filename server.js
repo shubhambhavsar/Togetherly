@@ -258,30 +258,91 @@ app.get('/api/rtc',async(req,res)=>{
   relayError});
 });
 
-// YouTube Data API searches are optional, quota-limited, and never expose the API key.
-const searchCache=new Map(),searchRates=new Map();
+// Hybrid discovery: Piped search metadata -> official YouTube API fallback.
+// Only video IDs, titles and channel names are used. Playback always runs in
+// YouTube's official iframe; never proxy/download any Piped stream URL.
+const searchCache=new Map(),searchIndex=new Map(),searchInflight=new Map(),searchRates=new Map();
 const searchBudget={day:'',uses:0};
+const SEARCH_TTL_MS=2*60*60*1000,SEARCH_INDEX_TTL_MS=6*60*60*1000;
+const cleanSearch=q=>String(q||'').trim().replace(/\\s+/g,' ').toLowerCase();
+const pipedApiBase=(()=>{
+ const value=process.env.PIPED_API_URL===undefined?'https://pipedapi.kavin.rocks':process.env.PIPED_API_URL;
+ if(!value||value==='disabled')return null;
+ try{
+  const url=new URL(value);
+  if(url.protocol!=='https:'||url.username||url.password||url.port||url.search||url.hash||
+    !/^[a-z0-9.-]+$/i.test(url.hostname)||url.hostname==='localhost'||
+    /^(?:\\d+\\.){3}\\d+$/.test(url.hostname)||!url.hostname.includes('.'))return null;
+  return url.origin;
+ }catch{return null}
+})();
+function storeSearch(q,items,provider){
+ const now=Date.now(),key=cleanSearch(q);
+ if(searchCache.size>=250)searchCache.delete(searchCache.keys().next().value);
+ searchCache.set(key,{items,provider,until:now+SEARCH_TTL_MS});
+ for(const item of items){
+  if(searchIndex.size>=800)searchIndex.delete(searchIndex.keys().next().value);
+  searchIndex.set(item.id,{...item,until:now+SEARCH_INDEX_TTL_MS});
+ }
+}
+function searchLocalIndex(q){
+ const tokens=cleanSearch(q).split(/\\s+/).filter(x=>x.length>1);
+ if(!tokens.length)return [];
+ const results=[];
+ for(const item of searchIndex.values()){
+  if(item.until<Date.now())continue;
+  const title=cleanSearch(item.title),channel=cleanSearch(item.channel);
+  if(!tokens.every(t=>title.includes(t)||channel.includes(t)))continue;
+  const score=tokens.reduce((n,t)=>n+(title.startsWith(t)?3:title.includes(t)?2:1),0);
+  results.push({item,score});
+ }
+ return results.sort((a,b)=>b.score-a.score).slice(0,10).map(x=>({id:x.item.id,title:x.item.title,channel:x.item.channel,eligibility:'unverified'}));
+}
+async function searchPiped(q){
+ if(!pipedApiBase)throw Error('Piped is not configured');
+ const url=new URL(pipedApiBase+'/search');
+ url.searchParams.set('q',q);url.searchParams.set('filter','videos');
+ const response=await fetch(url,{redirect:'error',headers:{accept:'application/json'},signal:AbortSignal.timeout(6500)});
+ if(!response.ok)throw Error('Piped returned '+response.status);
+ if(Number(response.headers?.get?.('content-length')||0)>1000000)throw Error('Piped response too large');
+ const data=await response.json();
+ if(!Array.isArray(data?.items))throw Error('Invalid Piped search response');
+ const seen=new Set(),items=[];
+ for(const entry of data.items){
+  if(entry?.type!=='stream')continue;
+  let id=null;
+  try{
+   const watch=new URL(String(entry.url||''),'https://www.youtube.com');
+   if(['youtube.com','www.youtube.com','m.youtube.com'].includes(watch.hostname))
+    id=watch.pathname==='/watch'?watch.searchParams.get('v'):watch.pathname.match(/^\\/(?:shorts|live|embed)\\/([\\w-]{11})/)?.[1];
+   else if(['youtu.be','www.youtu.be'].includes(watch.hostname))id=watch.pathname.slice(1);
+  }catch{}
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id||'')||seen.has(id))continue;
+  seen.add(id);
+  items.push({id,title:String(entry.title||'Untitled video').slice(0,150),
+   channel:String(entry.uploaderName||'YouTube').slice(0,80),eligibility:'unverified'});
+  if(items.length===12)break;
+ }
+ return items;
+}
 async function searchYouTube(q){
- const now=Date.now(),cacheKey=q.toLowerCase(),saved=searchCache.get(cacheKey);
- if(saved&&saved.until>now)return saved.items;
+ if(!process.env.YOUTUBE_API_KEY)throw Error('YouTube API key not configured');
  const day=new Date().toISOString().slice(0,10);
  if(searchBudget.day!==day){searchBudget.day=day;searchBudget.uses=0}
- if(searchBudget.uses>=70)throw new Error('Daily free search allowance used. Paste a link or try tomorrow.');
+ if(searchBudget.uses>=70)throw Error('YouTube daily search budget reached');
  const url=new URL('https://www.googleapis.com/youtube/v3/search');
  const opts={part:'snippet',type:'video',videoEmbeddable:'true',maxResults:'10',safeSearch:'moderate',q,key:process.env.YOUTUBE_API_KEY};
  for(const [k,v] of Object.entries(opts))url.searchParams.set(k,v);
  searchBudget.uses++;
  const response=await fetch(url,{signal:AbortSignal.timeout(9000)});
- if(!response.ok){console.warn('YouTube discovery failed:',response.status);throw new Error('YouTube search is unavailable. Try later or use a link.')}
+ if(!response.ok)throw Error('YouTube search returned '+response.status);
  const body=await response.json();
  const candidates=(body.items||[]).filter(x=>/^[A-Za-z0-9_-]{11}$/.test(x.id?.videoId||'')).map(x=>({
-  id:x.id.videoId,
-  title:String(x.snippet?.title||'Untitled video').slice(0,150),
-  channel:String(x.snippet?.channelTitle||'').slice(0,80)
+  id:x.id.videoId,title:String(x.snippet?.title||'Untitled video').slice(0,150),
+  channel:String(x.snippet?.channelTitle||'YouTube').slice(0,80)
  }));
  let items=candidates;
- // Search's videoEmbeddable filter is not a guarantee. Cross-check status.embeddable
- // and regional restrictions with videos.list (1 quota unit for the batch).
+ // The API's embeddable filter is not a guarantee; check status and region.
  if(candidates.length){
   try{
    const detailUrl=new URL('https://www.googleapis.com/youtube/v3/videos');
@@ -302,15 +363,49 @@ async function searchYouTube(q){
     return entry?.status?.embeddable===true&&entry.status?.privacyStatus==='public'&&usableInRegions(entry)
    }).map(v=>({...v,eligibility:'prechecked'}));
   }catch(e){
-   console.warn('Video eligibility check unavailable:',e.message);
-   // Show unverified results rather than pretending that we checked them.
-   items=candidates.map(v=>({...v,eligibility:'unverified'}))
+   console.warn('YouTube eligibility check unavailable:',e.message);
+   items=candidates.map(v=>({...v,eligibility:'unverified'}));
   }
  }
- if(searchCache.size>120)searchCache.clear();
- searchCache.set(cacheKey,{items,until:now+10*60*1000});return items;
+ return items;
 }
-app.get('/api/discovery-status',(req,res)=>res.json({searchReady:!!process.env.YOUTUBE_API_KEY}));
+async function searchHybrid(q,clientKey='anonymous'){
+ const key=cleanSearch(q),cached=searchCache.get(key);
+ if(cached&&cached.until>Date.now())return {items:cached.items,provider:cached.provider,cached:true};
+ // Every query can use the local index; cached/indexed requests do not count
+ // against the abuse limit or consume an external request.
+ const local=searchLocalIndex(q);
+ if(local.length>=5)return {items:local,provider:'library',cached:true};
+ if(searchInflight.has(key))return searchInflight.get(key);
+ const now=Date.now(),rate=searchRates.get(clientKey)||{count:0,until:now+60000};
+ if(rate.until<now){rate.count=0;rate.until=now+60000}
+ if(rate.count>=60){
+  if(local.length)return {items:local,provider:'library',cached:true};
+  throw Error('Too many new searches in one minute. Try a cached title or paste a link.');
+ }
+ rate.count++;searchRates.set(clientKey,rate);
+ if(searchRates.size>3000)searchRates.clear();
+ const pending=(async()=>{
+  let failure=null;
+  if(pipedApiBase){
+   try{
+    const items=await searchPiped(q);
+    if(items.length){storeSearch(q,items,'piped');return {items,provider:'piped',cached:false}}
+   }catch(error){failure=error;console.warn('Piped search unavailable:',error.message)}
+  }
+  if(process.env.YOUTUBE_API_KEY){
+   try{
+    const items=await searchYouTube(q);
+    storeSearch(q,items,'youtube');return {items,provider:'youtube',cached:false};
+   }catch(error){failure=error;console.warn('YouTube search unavailable:',error.message)}
+  }
+  if(local.length)return {items:local,provider:'library',cached:true,notice:'Showing previously discovered videos; live search is unavailable.'};
+  throw Error('Video search temporarily unavailable. '+(failure?'Try again shortly or paste a YouTube link.':'Configure a search provider or paste a link.'));
+ })();
+ searchInflight.set(key,pending);
+ try{return await pending}finally{searchInflight.delete(key)}
+}
+app.get('/api/discovery-status',(req,res)=>res.json({searchReady:Boolean(pipedApiBase||process.env.YOUTUBE_API_KEY),providers:{piped:Boolean(pipedApiBase),youtube:Boolean(process.env.YOUTUBE_API_KEY)}}));
 app.get('/room/:id',(_req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 const safeName=x=>typeof x==='string'?x.replace(/[<>\x00-\x1f]/g,'').trim().slice(0,25):'';
 const validRoom=x=>typeof x==='string'&&/^[a-f0-9]{24}$/.test(x);
@@ -428,14 +523,10 @@ s.on('catalog:play',async(d,ack)=>{
 s.on('discover:search',async(d,ack)=>{
  if(typeof ack!=='function')return;
  if(!roomOf(s))return ack({error:'Join the watch room before searching'});
- if(!process.env.YOUTUBE_API_KEY)return ack({error:'In-app search needs a YouTube API key. Use the recent shelf or paste a link for now.'});
+ if(!pipedApiBase&&!process.env.YOUTUBE_API_KEY)return ack({error:'No search provider configured. Paste a YouTube link for now.'});
  const q=typeof d?.q==='string'?d.q.trim().slice(0,80):'';
  if(q.length<2)return ack({error:'Enter at least two characters'});
- const now=Date.now(),rate=searchRates.get(s.id)||{count:0,until:now+3600000};
- if(rate.until<now){rate.count=0;rate.until=now+3600000}
- rate.count++;searchRates.set(s.id,rate);
- if(rate.count>12)return ack({error:'Search limit reached. Please try later.'});
- try{ack({items:await searchYouTube(q)})}catch(e){ack({error:e.message})}
+ try{ack(await searchHybrid(q,s.handshake?.address||s.id))}catch(e){ack({error:e.message})}
 });
 s.on('queue:add',async(d,ack)=>{
  const r=roomOf(s);if(!r)return ack?.({error:'Join the room first'});
