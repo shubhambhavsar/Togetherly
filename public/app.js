@@ -157,7 +157,7 @@ async function openExplore(){
  $('discoverModal').classList.remove('hidden');document.body.classList.add('modal-lock');renderRecent();
  setTimeout(()=>$('discoverInput').focus(),60);
  try{const res=await fetch('/api/discovery-status');searchReady=!!(await res.json()).searchReady}catch{searchReady=false}
- $('searchHint').textContent=searchReady?'':'YouTube search needs an API key. You can still use recent videos, the shared queue, or paste a YouTube link.';
+ $('searchHint').textContent=searchReady?'':'Live search is unavailable. You can still use recent videos, the shared queue, or paste a YouTube link.';
 }
 function closeExplore(){
  $('discoverModal').classList.add('hidden');document.body.classList.remove('modal-lock');
@@ -177,11 +177,11 @@ $('discoverForm').onsubmit=async e=>{
  e.preventDefault();if(searching)return;
  const q=$('discoverInput').value.trim();if(q.length<2)return toast('Enter a video or movie name');
  updateBrowseUrl(q);
- if(!searchReady){$('searchHint').textContent='In-app search requires a YouTube API key. Browse YouTube, copy a video, then tap Paste on Togetherly.';return}
+ if(!searchReady){$('searchHint').textContent='Live search is not configured. Browse YouTube, copy a video link, then paste it into Togetherly.';return}
  searching=true;$('searchHint').textContent='Looking for something good…';
  try{
   const data=await new Promise((resolve,reject)=>{
-    socket.timeout(13000).emit('discover:search',{q},(err,result)=>{
+    socket.timeout(20000).emit('discover:search',{q},(err,result)=>{
       if(err)reject(Error('Search timed out. Please try again.'));
       else if(result?.error)reject(Error(result.error));
       else resolve(result)
@@ -189,7 +189,7 @@ $('discoverForm').onsubmit=async e=>{
   });
   const results=$('discoverResults');results.replaceChildren();
   for(const item of data.items||[])results.append(createResult(item));
-  $('searchHint').textContent=(data.items||[]).length?'':'No available videos found. Try another search.';
+  $('searchHint').textContent=data.notice||(data.items||[]).length?(data.notice||(data.cached?'Showing videos from the search cache.':data.provider==='piped'?'Results via Piped · Playback uses YouTube. Some videos may block embedding.':'Results via YouTube.')):'No available videos found. Try another search.';
  }catch(err){$('searchHint').textContent=err.message}
  finally{searching=false}
 };
