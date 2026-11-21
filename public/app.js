@@ -177,7 +177,17 @@ $('discoverForm').onsubmit=async e=>{
  e.preventDefault();if(searching)return;
  const q=$('discoverInput').value.trim();if(q.length<2)return toast('Enter a video or movie name');
  updateBrowseUrl(q);
- if(!searchReady){$('searchHint').textContent='Live search is not configured. Browse YouTube, copy a video link, then paste it into Togetherly.';return}
+ const section=$('searchSection'),results=$('discoverResults'),empty=$('searchResultsEmpty');
+ section.classList.remove('hidden');
+ results.replaceChildren();empty.classList.add('hidden');empty.textContent='';
+ $('searchResultQuery').textContent='Searching for “'+q+'”…';
+ if(!searchReady){
+  const message='Live search is not configured. Browse YouTube, copy a video link, then paste it into Togetherly.';
+  $('searchHint').textContent=message;
+  $('searchResultQuery').textContent='No results for “'+q+'”';
+  empty.textContent=message;empty.classList.remove('hidden');
+  return;
+ }
  searching=true;$('searchHint').textContent='Looking for something good…';
  try{
   const data=await new Promise((resolve,reject)=>{
@@ -187,11 +197,24 @@ $('discoverForm').onsubmit=async e=>{
       else resolve(result)
     })
   });
-  const results=$('discoverResults');results.replaceChildren();
-  for(const item of data.items||[])results.append(createResult(item));
-  $('searchHint').textContent=data.notice||(data.items||[]).length?(data.notice||(data.cached?'Showing videos from the search cache.':data.provider==='piped'?'Results via Piped · Playback uses YouTube. Some videos may block embedding.':'Results via YouTube.')):'No available videos found. Try another search.';
- }catch(err){$('searchHint').textContent=err.message}
- finally{searching=false}
+  const items=data?.items||[];
+  for(const item of items)results.append(createResult(item));
+  $('searchResultQuery').textContent=items.length+
+   (items.length===1?' video':' videos')+' found for “'+q+'”';
+  if(!items.length){
+   empty.textContent='No available videos found. Try a different title or broader search.';
+   empty.classList.remove('hidden');
+  }
+  $('searchHint').textContent=data.notice||(items.length?
+   (data.cached?'Showing videos from the search cache.':
+    data.provider==='piped'?'Results via Piped · Playback uses YouTube. Some videos may block embedding.':'Results via YouTube.'):
+   'No available videos found. Try another search.');
+ }catch(err){
+  $('searchResultQuery').textContent='Search unavailable for “'+q+'”';
+  empty.textContent=err.message;
+  empty.classList.remove('hidden');
+  $('searchHint').textContent=err.message;
+ }finally{searching=false}
 };
 document.querySelectorAll('[data-query]').forEach(b=>b.onclick=()=>{
  $('discoverInput').value=b.dataset.query;updateBrowseUrl(b.dataset.query);$('discoverForm').requestSubmit()
