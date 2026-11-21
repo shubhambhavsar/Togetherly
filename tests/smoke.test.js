@@ -414,7 +414,7 @@ test('catalog search and provider picker use safe DOM and server-validated room 
  assert.ok(frontend.includes('title.textContent=item.title'),'Movie titles should not be inserted via HTML');
  assert.ok(!frontend.includes("catalogResults').innerHTML"),'Avoid raw search-result HTML');
  assert.ok(css.includes('.catalog-play-form'));
- assert.ok(html.includes('/app.js?v=29')&&html.includes('/website-player.css?v=11'));
+ assert.ok(html.includes('/app.js?v=30')&&html.includes('/website-player.css?v=11'));
  assert.ok(html.includes('not endorsed or certified by TMDB'),'Provide required third-party attribution');
  assert.ok(html.includes('Only watch content you are authorized to access'));
 });
@@ -482,7 +482,7 @@ test('movie discovery never asks users to know a TMDB ID',()=>{
  assert.ok(frontend.includes("row.onclick=()=>catalogSelectTitle(item)"),'One click selects a title');
  assert.ok(frontend.includes("socket.timeout(9000).emit('catalog:play'"),'Watch button broadcasts to the room');
  assert.ok(css.includes('.catalog-result-poster')&&css.includes('.catalog-selection'));
- assert.ok(html.includes('/website-player.css?v=11')&&html.includes('/app.js?v=29'));
+ assert.ok(html.includes('/website-player.css?v=11')&&html.includes('/app.js?v=30'));
  assert.ok(html.includes('www.wikidata.org'),'Fallback metadata must be attributed');
 });
 
@@ -1062,7 +1062,7 @@ test('mobile movie finder has a dedicated responsive detail step',()=>{
  for(const id of ['catalogResultHeading','catalogResultCount','catalogSelectedPoster',
   'catalogSelectedDescription','catalogShareFeedback','catalogChangeTitle'])
   assert.ok(html.includes('id="'+id+'"'));
- assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=29'));
+ assert.ok(html.includes('/mobile-cinema.css?v=2')&&html.includes('/app.js?v=30'));
  assert.ok(css.includes('.sr-only{')&&css.includes('clip-path:inset(50%)'));
  assert.ok(css.includes('grid-template-columns:minmax(0,1fr) 77px'),'Find action must stay beside input');
  assert.ok(css.includes('#watch #movieCatalog.is-title-selected #catalogResults'));
@@ -1245,7 +1245,7 @@ test('Togetherly movie uses permanent click protection with owned transport cont
  assert.ok(!html.includes('id="websiteUnlock"'));
  assert.ok(!html.includes('id="websiteInteractionToggle"'));
  assert.ok(html.includes('/website-player.css?v=11'));
- assert.ok(html.includes('/app.js?v=29'));
+ assert.ok(html.includes('/app.js?v=30'));
  assert.ok(frontend.includes('function movieLocalPause()'));
  assert.ok(frontend.includes('function movieLocalPlay()'));
  assert.ok(frontend.includes('function movieLocalSkip(delta)'));
@@ -1484,4 +1484,20 @@ test('Piped outage falls back to YouTube metadata and does not expose direct str
  assert.equal(youtubeCalls,2);
  assert.equal(pipedAttempts,1);
  assert.equal(result.items[0].url,undefined,'Search should never pass extracted streams to players');
+});
+
+test('video finder separates recently watched from fresh search results',()=>{
+ const styles=fs.readFileSync(path.join(root,'public/discovery-sections.css'),'utf8');
+ assert.ok(html.includes('id="recentSection"')&&html.includes('id="recentList"'));
+ assert.ok(html.includes('id="searchSection" class="search-results-section hidden"'));
+ assert.ok(html.includes('id="searchResultsHeading"'));
+ assert.ok(html.includes('id="searchResultQuery"'));
+ assert.ok(html.includes('id="searchResultsEmpty"'));
+ assert.ok(html.includes('/discovery-sections.css?v=1'));
+ assert.ok(html.indexOf('id="recentSection"')<html.indexOf('id="searchSection"'));
+ assert.ok(frontend.includes("section.classList.remove('hidden')"));
+ assert.ok(frontend.includes("empty.classList.remove('hidden')"));
+ assert.ok(styles.includes('#discoverModal .search-results-section'));
+ assert.ok(styles.includes('border-top:1px solid'));
+ assert.ok(styles.includes('#discoverModal .recent-section'));
 });
